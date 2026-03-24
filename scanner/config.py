@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 
 
 @dataclass
@@ -27,4 +28,16 @@ class ScannerConfig:
 
     save_dir: str = "output"
     apply_scan_enhancement: bool = False
+
+    # Optional readability verification (OCR based)
+    enable_readability_check: bool = False
+    min_readability_confidence: float = 45.0
+    tesseract_cmd: str = os.getenv("TESSERACT_CMD", "")
+
+    # Optional API upload config
+    upload_enabled: bool = False
+    upload_url: str = os.getenv("SCAN_UPLOAD_URL", "")
+    upload_token: str = os.getenv("SCAN_UPLOAD_TOKEN", "")
+    upload_timeout_seconds: int = 15
+    upload_field_name: str = "file"
 

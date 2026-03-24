@@ -100,6 +100,37 @@ On Windows PowerShell:
 pip install -r requirements.txt
 ```
 
+### Windows OCR dependency (for readability module)
+
+Install Tesseract OCR engine:
+
+```bash
+winget install --id tesseract-ocr.tesseract --accept-source-agreements --accept-package-agreements
+```
+
+If `tesseract` is not in PATH, pass it explicitly:
+
+```bash
+python main.py --image "C:\path\to\your_photo.jpg" --verify-readable --tesseract-cmd "C:\Program Files\Tesseract-OCR\tesseract.exe"
+```
+
+### Ubuntu (Orange Pi) setup
+
+Install system packages:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip tesseract-ocr libgl1 libglib2.0-0 v4l-utils
+```
+
+Create environment and install Python dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 If you do not yet have a requirements file, typical packages are:
 
 ```bash
@@ -120,11 +151,46 @@ Run on a saved image (single-shot validation):
 python main.py --image "C:\path\to\your_photo.jpg"
 ```
 
+Ubuntu/Orange Pi headless image mode (no windows):
+
+```bash
+python3 main.py --image ./Image_1.jpeg --no-gui
+```
+
 In image mode, the app:
 - detects the page once,
 - shows input + rectified result windows,
 - saves the rectified output into `output/`,
 - prints confidence and saved output path.
+
+Run readability verification (OCR-based):
+
+```bash
+python main.py --image "C:\path\to\your_photo.jpg" --verify-readable
+```
+
+Upload saved flattened image to API:
+
+```bash
+python main.py --image "C:\path\to\your_photo.jpg" --upload-url "https://your-api.example/upload"
+```
+
+Upload with bearer token:
+
+```bash
+python main.py --image "C:\path\to\your_photo.jpg" --upload-url "https://your-api.example/upload" --upload-token "YOUR_TOKEN"
+```
+
+You can also configure upload through environment variables:
+
+```bash
+SCAN_UPLOAD_URL=https://your-api.example/upload
+SCAN_UPLOAD_TOKEN=YOUR_TOKEN
+```
+
+Then run normally (without `--upload-url`), after setting:
+- `upload_enabled=True` in code config, or
+- passing `--upload-url`.
 
 Keyboard controls:
 
@@ -178,6 +244,7 @@ The app prints run metrics when you quit:
 - **Wrong orientation:** verify corner ordering logic.
 - **Jitter in corners:** keep camera fixed and add frame-to-frame smoothing.
 - **Low FPS:** reduce frame resolution and avoid unnecessary copies.
+- **Readability check not working:** install Tesseract OCR engine on your OS (the `pytesseract` package alone is not enough).
 
 ## Documentation Usage
 

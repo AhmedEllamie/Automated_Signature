@@ -15,6 +15,8 @@ from scanner import (
     detect_document_quad,
     enhance_for_scan,
     smooth_quad,
+    upload_scan,
+    verify_readability,
     warp_document,
 )
 
@@ -55,7 +57,7 @@ def fit_for_display(image: np.ndarray, max_width: int, max_height: int) -> np.nd
     return cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
 
 
-def process_single_image(image_path: str, cfg: ScannerConfig) -> int:
+def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool = True) -> int:
     frame = cv2.imread(image_path)
     if frame is None:
         print(f"Error: Cannot read image: {image_path}")
@@ -68,12 +70,13 @@ def process_single_image(image_path: str, cfg: ScannerConfig) -> int:
     if quad is None or confidence < cfg.confidence_threshold:
         print("No confident document detection in this image.")
         print(f"Confidence: {confidence:.2f} (threshold: {cfg.confidence_threshold:.2f})")
-        cv2.imshow(
-            "A4 Scanner - Input",
-            fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
-        )
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        if show_windows:
+            cv2.imshow(
+                "A4 Scanner - Input",
+                fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
+            )
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
         return 2
 
     draw_quad(vis, quad, (0, 255, 0))
@@ -83,17 +86,19 @@ def process_single_image(image_path: str, cfg: ScannerConfig) -> int:
 
     print(f"Detected with confidence: {confidence:.2f}")
     print(f"Saved rectified image: {out_path}")
+    run_post_processors(result, out_path, cfg)
 
-    cv2.imshow(
-        "A4 Scanner - Input",
-        fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
-    )
-    cv2.imshow(
-        "A4 Scanner - Rectified",
-        fit_for_display(result, cfg.max_display_width, cfg.max_display_height),
-    )
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if show_windows:
+        cv2.imshow(
+            "A4 Scanner - Input",
+            fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
+        )
+        cv2.imshow(
+            "A4 Scanner - Rectified",
+            fit_for_display(result, cfg.max_display_width, cfg.max_display_height),
+        )
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
     return 0
 
 
@@ -105,7 +110,60 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to a saved photo to process once instead of webcam mode.",
     )
+    parser.add_argument(
+        "--verify-readable",
+        action="store_true",
+        help="Run OCR readability verification on the flattened image.",
+    )
+    parser.add_argument(
+        "--upload-url",
+        type=str,
+        default="",
+        help="If set, upload saved scans to this API endpoint.",
+    )
+    parser.add_argument(
+        "--upload-token",
+        type=str,
+        default="",
+        help="Optional bearer token for the upload API.",
+    )
+    parser.add_argument(
+        "--tesseract-cmd",
+        type=str,
+        default="",
+        help="Full path to tesseract executable (if not in PATH).",
+    )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        help="Disable OpenCV windows (useful on headless Ubuntu/Orange Pi).",
+    )
     return parser.parse_args()
+
+
+def run_post_processors(image: np.ndarray, image_path: str, cfg: ScannerConfig) -> None:
+    if cfg.enable_readability_check:
+        r = verify_readability(
+            image,
+            min_confidence=cfg.min_readability_confidence,
+            tesseract_cmd=cfg.tesseract_cmd,
+        )
+        print(
+            "Readability:",
+            f"{r.message} | readable={r.readable} | mean_conf={r.mean_confidence:.2f} | tokens={r.token_count}",
+        )
+
+    if cfg.upload_enabled and cfg.upload_url:
+        u = upload_scan(
+            image_path=image_path,
+            upload_url=cfg.upload_url,
+            api_token=cfg.upload_token or None,
+            timeout_seconds=cfg.upload_timeout_seconds,
+            field_name=cfg.upload_field_name,
+        )
+        print(f"Upload: {u.message} (status={u.status_code})")
+        if u.response_preview:
+            print(f"Upload response: {u.response_preview}")
 
 
 def run_webcam(cfg: ScannerConfig) -> int:
@@ -202,6 +260,7 @@ def run_webcam(cfg: ScannerConfig) -> int:
                 out_path = save_scan(warped_preview, cfg.save_dir)
                 save_count += 1
                 print(f"Saved: {out_path}")
+                run_post_processors(warped_preview, out_path, cfg)
     finally:
         cap.release()
         cv2.destroyAllWindows()
@@ -221,8 +280,17 @@ def run_webcam(cfg: ScannerConfig) -> int:
 def main() -> int:
     args = parse_args()
     cfg = ScannerConfig()
+    if args.verify_readable:
+        cfg.enable_readability_check = True
+    if args.upload_url:
+        cfg.upload_enabled = True
+        cfg.upload_url = args.upload_url
+    if args.upload_token:
+        cfg.upload_token = args.upload_token
+    if args.tesseract_cmd:
+        cfg.tesseract_cmd = args.tesseract_cmd
     if args.image:
-        return process_single_image(args.image, cfg)
+        return process_single_image(args.image, cfg, show_windows=not args.no_gui)
     return run_webcam(cfg)
 
 
