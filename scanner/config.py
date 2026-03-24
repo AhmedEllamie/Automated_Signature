@@ -19,10 +19,12 @@ class ScannerConfig:
 
     a4_ratio: float = 1.41421356237
     warp_short_side: int = 900
+    max_display_width: int = 900
+    max_display_height: int = 700
 
     smoothing_alpha: float = 0.24
     confidence_threshold: float = 0.62
 
     save_dir: str = "output"
-    apply_scan_enhancement: bool = True
+    apply_scan_enhancement: bool = False
 

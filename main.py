@@ -46,6 +46,15 @@ def save_scan(image: np.ndarray, save_dir: str) -> str:
     return path
 
 
+def fit_for_display(image: np.ndarray, max_width: int, max_height: int) -> np.ndarray:
+    h, w = image.shape[:2]
+    if w <= max_width and h <= max_height:
+        return image
+    scale = min(max_width / float(w), max_height / float(h))
+    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+    return cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+
+
 def process_single_image(image_path: str, cfg: ScannerConfig) -> int:
     frame = cv2.imread(image_path)
     if frame is None:
@@ -59,7 +68,10 @@ def process_single_image(image_path: str, cfg: ScannerConfig) -> int:
     if quad is None or confidence < cfg.confidence_threshold:
         print("No confident document detection in this image.")
         print(f"Confidence: {confidence:.2f} (threshold: {cfg.confidence_threshold:.2f})")
-        cv2.imshow("A4 Scanner - Input", vis)
+        cv2.imshow(
+            "A4 Scanner - Input",
+            fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
+        )
         cv2.waitKey(0)
         cv2.destroyAllWindows()
         return 2
@@ -72,8 +84,14 @@ def process_single_image(image_path: str, cfg: ScannerConfig) -> int:
     print(f"Detected with confidence: {confidence:.2f}")
     print(f"Saved rectified image: {out_path}")
 
-    cv2.imshow("A4 Scanner - Input", vis)
-    cv2.imshow("A4 Scanner - Rectified", result)
+    cv2.imshow(
+        "A4 Scanner - Input",
+        fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
+    )
+    cv2.imshow(
+        "A4 Scanner - Rectified",
+        fit_for_display(result, cfg.max_display_width, cfg.max_display_height),
+    )
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     return 0
@@ -160,8 +178,14 @@ def run_webcam(cfg: ScannerConfig) -> int:
                 warped_preview = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
 
             put_status(vis, mode, confidence, fps, save_count)
-            cv2.imshow("A4 Scanner", vis)
-            cv2.imshow("Rectified", warped_preview)
+            cv2.imshow(
+                "A4 Scanner",
+                fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
+            )
+            cv2.imshow(
+                "Rectified",
+                fit_for_display(warped_preview, cfg.max_display_width, cfg.max_display_height),
+            )
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
