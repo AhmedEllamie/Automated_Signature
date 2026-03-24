@@ -27,7 +27,7 @@ def put_status(frame: np.ndarray, mode: str, confidence: float, fps: float, save
         f"Confidence: {confidence:.2f}",
         f"FPS: {fps:.1f}",
         f"Saved: {saves}",
-        "Keys: [a] auto  [m] manual  [r] reset points  [s] save  [q] quit",
+        "Starts in AUTO | Keys: [a] auto  [m] manual  [r] reset  [s] save  [q] quit",
     ]
     y = 28
     for line in lines:
@@ -217,7 +217,9 @@ def run_webcam(cfg: ScannerConfig) -> int:
     selector = ManualSelector("A4 Scanner")
     cv2.setMouseCallback("A4 Scanner", selector.on_mouse)
 
-    mode = "AUTO"
+    mode = cfg.start_mode.strip().upper() if cfg.start_mode else "AUTO"
+    if mode not in {"AUTO", "MANUAL"}:
+        mode = "AUTO"
     prev_quad = None
     warped_preview = np.zeros((dst_size[1], dst_size[0], 3), dtype=np.uint8)
 

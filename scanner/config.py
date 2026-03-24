@@ -25,6 +25,7 @@ class ScannerConfig:
 
     smoothing_alpha: float = 0.24
     confidence_threshold: float = 0.62
+    start_mode: str = "AUTO"  # AUTO starts live flattening immediately
 
     save_dir: str = "output"
     apply_scan_enhancement: bool = False
