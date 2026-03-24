@@ -62,16 +62,19 @@ Flatbed scanners are not always available, and mobile captures often produce til
 
 ## Project Structure
 
-Use this as a reference layout (adjust to your actual files):
+Current layout:
 
 ```text
 .
 |-- main.py
 |-- scanner/
+|   |-- __init__.py
+|   |-- config.py
 |   |-- preprocess.py
 |   |-- detect.py
+|   |-- geometry.py
 |   |-- warp.py
-|   `-- utils.py
+|   `-- ui.py
 |-- output/
 |-- requirements.txt
 `-- README.md
@@ -111,10 +114,23 @@ Run the scanner script:
 python main.py
 ```
 
-Suggested controls (replace with your real key bindings):
+Run on a saved image (single-shot validation):
+
+```bash
+python main.py --image "C:\path\to\your_photo.jpg"
+```
+
+In image mode, the app:
+- detects the page once,
+- shows input + rectified result windows,
+- saves the rectified output into `output/`,
+- prints confidence and saved output path.
+
+Keyboard controls:
 
 - `a`: switch to Auto mode
 - `m`: switch to Manual mode
+- `r`: reset manual points
 - `s`: save current rectified frame
 - `q`: quit
 
@@ -132,12 +148,13 @@ Camera Frame
 
 ## Evaluation and Metrics
 
-Add measured results from your environment:
+The app prints run metrics when you quit:
 
-- Average processing speed (FPS): `TBD`
-- Auto-detection success rate: `TBD`
-- Average rectification time per frame: `TBD`
-- Output resolution used: `TBD`
+- Frames processed
+- Elapsed seconds
+- Average FPS
+- Auto detect hit rate
+- Mean confidence
 
 ## Known Limitations
 
