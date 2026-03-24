@@ -20,11 +20,42 @@ class ReadabilityResult:
     message: str
 
 
+def _verify_readability_fast(image: np.ndarray, min_score: float = 45.0) -> ReadabilityResult:
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (3, 3), 0)
+
+    # Sharpness proxy: Laplacian variance
+    lap_var = float(cv2.Laplacian(blur, cv2.CV_64F).var())
+    sharp_score = min(100.0, (lap_var / 150.0) * 100.0)
+
+    # Contrast proxy: normalized std-dev
+    contrast = float(np.std(gray))
+    contrast_score = min(100.0, (contrast / 64.0) * 100.0)
+
+    # Text-edge density proxy
+    edges = cv2.Canny(blur, 80, 180)
+    edge_density = float(np.count_nonzero(edges)) / float(edges.size)
+    edge_score = min(100.0, (edge_density / 0.12) * 100.0)
+
+    score = 0.45 * sharp_score + 0.35 * contrast_score + 0.20 * edge_score
+    readable = score >= min_score
+    return ReadabilityResult(
+        readable=readable,
+        mean_confidence=score,
+        token_count=0,
+        message="Readable(fast)" if readable else "Low readability(fast)",
+    )
+
+
 def verify_readability(
     image: np.ndarray,
     min_confidence: float = 45.0,
     tesseract_cmd: str = "",
+    mode: str = "ocr",
 ) -> ReadabilityResult:
+    if mode.lower() == "fast":
+        return _verify_readability_fast(image, min_score=min_confidence)
+
     if pytesseract is None:
         return ReadabilityResult(
             readable=False,

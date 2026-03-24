@@ -169,6 +169,25 @@ Run readability verification (OCR-based):
 python main.py --image "C:\path\to\your_photo.jpg" --verify-readable
 ```
 
+Readability modes (in `scanner/config.py`):
+
+- `readability_mode = "fast"`: lightweight, no OCR engine, best for Orange Pi.
+- `readability_mode = "ocr"`: uses Tesseract OCR, more accurate but heavier.
+
+Recommended Orange Pi setup:
+
+- `enable_readability_check = True`
+- `require_readable_to_save = True`
+- `readability_mode = "fast"`
+
+Make saving conditional on readability (set in config):
+
+- In `scanner/config.py`:
+  - `enable_readability_check = True`
+  - `require_readable_to_save = True`
+
+When enabled, the app will not save a flattened image unless OCR marks it as readable.
+
 Upload saved flattened image to API:
 
 ```bash

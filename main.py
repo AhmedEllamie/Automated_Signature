@@ -82,6 +82,21 @@ def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool
     draw_quad(vis, quad, (0, 255, 0))
     warped = warp_document(frame, quad, dst_size)
     result = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
+
+    if not can_save_by_readability(result, cfg):
+        if show_windows:
+            cv2.imshow(
+                "A4 Scanner - Input",
+                fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
+            )
+            cv2.imshow(
+                "A4 Scanner - Rectified",
+                fit_for_display(result, cfg.max_display_width, cfg.max_display_height),
+            )
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+        return 3
+
     out_path = save_scan(result, cfg.save_dir)
 
     print(f"Detected with confidence: {confidence:.2f}")
@@ -147,6 +162,7 @@ def run_post_processors(image: np.ndarray, image_path: str, cfg: ScannerConfig) 
             image,
             min_confidence=cfg.min_readability_confidence,
             tesseract_cmd=cfg.tesseract_cmd,
+            mode=cfg.readability_mode,
         )
         print(
             "Readability:",
@@ -164,6 +180,25 @@ def run_post_processors(image: np.ndarray, image_path: str, cfg: ScannerConfig) 
         print(f"Upload: {u.message} (status={u.status_code})")
         if u.response_preview:
             print(f"Upload response: {u.response_preview}")
+
+
+def can_save_by_readability(image: np.ndarray, cfg: ScannerConfig) -> bool:
+    if not cfg.enable_readability_check or not cfg.require_readable_to_save:
+        return True
+
+    r = verify_readability(
+        image,
+        min_confidence=cfg.min_readability_confidence,
+        tesseract_cmd=cfg.tesseract_cmd,
+        mode=cfg.readability_mode,
+    )
+    print(
+        "Readability gate:",
+        f"{r.message} | readable={r.readable} | mean_conf={r.mean_confidence:.2f} | tokens={r.token_count}",
+    )
+    if not r.readable:
+        print("Save skipped: flattened image is not readable by current OCR threshold.")
+    return r.readable
 
 
 def run_webcam(cfg: ScannerConfig) -> int:
@@ -257,10 +292,11 @@ def run_webcam(cfg: ScannerConfig) -> int:
             elif key == ord("r"):
                 selector.reset()
             elif key == ord("s"):
-                out_path = save_scan(warped_preview, cfg.save_dir)
-                save_count += 1
-                print(f"Saved: {out_path}")
-                run_post_processors(warped_preview, out_path, cfg)
+                if can_save_by_readability(warped_preview, cfg):
+                    out_path = save_scan(warped_preview, cfg.save_dir)
+                    save_count += 1
+                    print(f"Saved: {out_path}")
+                    run_post_processors(warped_preview, out_path, cfg)
     finally:
         cap.release()
         cv2.destroyAllWindows()

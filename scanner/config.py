@@ -30,9 +30,11 @@ class ScannerConfig:
     apply_scan_enhancement: bool = False
 
     # Optional readability verification (OCR based)
-    enable_readability_check: bool = False
+    enable_readability_check: bool = True
+    readability_mode: str = "fast"  # "fast" for Orange Pi, "ocr" for Tesseract
     min_readability_confidence: float = 45.0
     tesseract_cmd: str = os.getenv("TESSERACT_CMD", "")
+    require_readable_to_save: bool = True
 
     # Optional API upload config
     upload_enabled: bool = False
