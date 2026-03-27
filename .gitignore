@@ -32,3 +32,5 @@ output/
 # Local test assets (optional)
 *.log
 
+# test  photos
+*.jpeg

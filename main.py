@@ -16,6 +16,7 @@ from scanner import (
     enhance_for_scan,
     smooth_quad,
     upload_scan,
+    upload_scan_bytes,
     verify_readability,
     warp_document,
 )
@@ -46,6 +47,13 @@ def save_scan(image: np.ndarray, save_dir: str) -> str:
     path = os.path.join(save_dir, name)
     cv2.imwrite(path, image)
     return path
+
+
+def encode_png_bytes(image: np.ndarray) -> bytes:
+    ok, buf = cv2.imencode(".png", image)
+    if not ok or buf is None:
+        raise ValueError("Failed to encode rectified image as PNG")
+    return buf.tobytes()
 
 
 def fit_for_display(image: np.ndarray, max_width: int, max_height: int) -> np.ndarray:
@@ -97,11 +105,19 @@ def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool
             cv2.destroyAllWindows()
         return 3
 
-    out_path = save_scan(result, cfg.save_dir)
-
     print(f"Detected with confidence: {confidence:.2f}")
-    print(f"Saved rectified image: {out_path}")
-    run_post_processors(result, out_path, cfg)
+
+    # If upload is enabled and configured for memory mode, avoid saving to disk.
+    if cfg.upload_enabled and cfg.upload_url and cfg.upload_from_memory:
+        run_post_processors(result, image_path="", cfg=cfg)
+        print("Rectified image uploaded from memory (local file kept only if upload fails).")
+    else:
+        out_path = save_scan(result, cfg.save_dir)
+        run_post_processors(result, out_path, cfg)
+        if os.path.exists(out_path):
+            print(f"Saved rectified image: {out_path}")
+        else:
+            print("Upload successful; local file deleted after upload.")
 
     if show_windows:
         cv2.imshow(
@@ -170,6 +186,28 @@ def run_post_processors(image: np.ndarray, image_path: str, cfg: ScannerConfig) 
         )
 
     if cfg.upload_enabled and cfg.upload_url:
+        # Memory upload: avoid writing files on successful uploads.
+        if cfg.upload_from_memory:
+            image_bytes = encode_png_bytes(image)
+            filename = "scan.png"
+            u = upload_scan_bytes(
+                image_bytes=image_bytes,
+                filename=filename,
+                upload_url=cfg.upload_url,
+                api_token=cfg.upload_token or None,
+                timeout_seconds=cfg.upload_timeout_seconds,
+                field_name=cfg.upload_field_name,
+            )
+            print(f"Upload: {u.message} (status={u.status_code})")
+            if u.response_preview:
+                print(f"Upload response: {u.response_preview}")
+
+            if not u.ok and cfg.save_on_upload_fail:
+                saved_path = save_scan(image, cfg.save_dir)
+                print(f"Upload failed; kept local copy: {saved_path}")
+            return
+
+        # Disk upload: upload the saved file, then optionally delete it.
         u = upload_scan(
             image_path=image_path,
             upload_url=cfg.upload_url,
@@ -180,6 +218,13 @@ def run_post_processors(image: np.ndarray, image_path: str, cfg: ScannerConfig) 
         print(f"Upload: {u.message} (status={u.status_code})")
         if u.response_preview:
             print(f"Upload response: {u.response_preview}")
+
+        if u.ok and cfg.delete_after_upload_success:
+            try:
+                os.remove(image_path)
+                print(f"Deleted local copy after successful upload: {image_path}")
+            except Exception as exc:
+                print(f"Warning: could not delete local copy: {exc}")
 
 
 def can_save_by_readability(image: np.ndarray, cfg: ScannerConfig) -> bool:
@@ -295,10 +340,14 @@ def run_webcam(cfg: ScannerConfig) -> int:
                 selector.reset()
             elif key == ord("s"):
                 if can_save_by_readability(warped_preview, cfg):
-                    out_path = save_scan(warped_preview, cfg.save_dir)
-                    save_count += 1
-                    print(f"Saved: {out_path}")
-                    run_post_processors(warped_preview, out_path, cfg)
+                    # Memory mode: do not create output file unless upload fails.
+                    if cfg.upload_enabled and cfg.upload_url and cfg.upload_from_memory:
+                        run_post_processors(warped_preview, image_path="", cfg=cfg)
+                    else:
+                        out_path = save_scan(warped_preview, cfg.save_dir)
+                        save_count += 1
+                        print(f"Saved: {out_path}")
+                        run_post_processors(warped_preview, out_path, cfg)
     finally:
         cap.release()
         cv2.destroyAllWindows()

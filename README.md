@@ -188,7 +188,7 @@ Make saving conditional on readability (set in config):
 
 When enabled, the app will not save a flattened image unless OCR marks it as readable.
 
-Upload saved flattened image to API:
+Upload flattened image to API (optional cleanup):
 
 ```bash
 python main.py --image "C:\path\to\your_photo.jpg" --upload-url "https://your-api.example/upload"
@@ -210,6 +210,11 @@ SCAN_UPLOAD_TOKEN=YOUR_TOKEN
 Then run normally (without `--upload-url`), after setting:
 - `upload_enabled=True` in code config, or
 - passing `--upload-url`.
+
+Upload storage strategy (in `scanner/config.py`):
+- `upload_from_memory = True`: does not create an output file on successful upload (saves to `output/` only if upload fails and `save_on_upload_fail=True`).
+- `upload_from_memory = False`: saves to disk, uploads from the saved file, then deletes it if `delete_after_upload_success=True`.
+- `save_on_upload_fail = True`: keeps a local copy in case the upload fails (useful for debugging).
 
 Keyboard controls:
 
