@@ -4,7 +4,7 @@ import os
 
 @dataclass
 class ScannerConfig:
-    camera_index: int = 0
+    camera_index: int = 1
     frame_width: int = 1280
     frame_height: int = 720
     preview_scale: float = 1.0
@@ -32,7 +32,7 @@ class ScannerConfig:
 
     # Optional readability verification (OCR based)
     enable_readability_check: bool = True
-    readability_mode: str = "fast"  # "fast" for Orange Pi, "ocr" for Tesseract
+    readability_mode: str = "ocr"  # "fast" for Orange Pi, "ocr" for Tesseract
     min_readability_confidence: float = 45.0
     tesseract_cmd: str = os.getenv("TESSERACT_CMD", "")
     require_readable_to_save: bool = True
@@ -43,4 +43,11 @@ class ScannerConfig:
     upload_token: str = os.getenv("SCAN_UPLOAD_TOKEN", "")
     upload_timeout_seconds: int = 15
     upload_field_name: str = "file"
+
+    # Upload cleanup / storage strategy
+    # - upload_from_memory=True: do not write a file to disk unless upload fails (save_on_upload_fail).
+    # - upload_from_memory=False: save to disk, upload from file, then optionally delete after successful upload.
+    upload_from_memory: bool = True
+    delete_after_upload_success: bool = True
+    save_on_upload_fail: bool = True
 
