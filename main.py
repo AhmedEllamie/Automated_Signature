@@ -15,21 +15,31 @@ from scanner import (
     compute_warp_short_side,
     detect_document_quad,
     enhance_for_scan,
+    notify_unreadable_capture,
     smooth_quad,
     upload_scan,
     upload_scan_bytes,
     verify_readability,
     warp_document,
 )
+from scanner.readability import ReadabilityResult
 
 
-def put_status(frame: np.ndarray, mode: str, confidence: float, fps: float, saves: int) -> None:
+def put_status(
+    frame: np.ndarray,
+    mode: str,
+    confidence: float,
+    fps: float,
+    saves: int,
+    auto_status: str,
+) -> None:
     lines = [
         f"Mode: {mode}",
         f"Confidence: {confidence:.2f}",
         f"FPS: {fps:.1f}",
         f"Saved: {saves}",
-        "Starts in AUTO | Keys: [a] auto  [m] manual  [r] reset  [s] save  [q] quit",
+        auto_status,
+        "Starts in AUTO | Keys: [a] auto  [m] manual  [r] reset  [q] quit",
     ]
     y = 28
     for line in lines:
@@ -99,6 +109,56 @@ def fit_for_display(image: np.ndarray, max_width: int, max_height: int) -> np.nd
     return cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
 
 
+def persist_capture(
+    image: np.ndarray,
+    cfg: ScannerConfig,
+    readability_result: ReadabilityResult | None = None,
+) -> None:
+    # Memory mode keeps disk clean; local fallback is handled in run_post_processors on upload failure.
+    if cfg.upload_enabled and cfg.upload_url and cfg.upload_from_memory:
+        run_post_processors(image, image_path="", cfg=cfg, readability_result=readability_result)
+        print("Rectified image uploaded from memory (local file kept only if upload fails).")
+        return
+
+    out_path = save_scan(image, cfg.save_dir)
+    run_post_processors(image, out_path, cfg, readability_result=readability_result)
+    if os.path.exists(out_path):
+        print(f"Saved rectified image: {out_path}")
+    else:
+        print("Upload successful; local file deleted after upload.")
+
+
+def notify_unreadable(
+    cfg: ScannerConfig,
+    detector_confidence: float,
+    readability_result: ReadabilityResult | None,
+) -> bool:
+    if not cfg.unreadable_notify_enabled:
+        return False
+    if not cfg.unreadable_notify_url:
+        print(
+            "Unreadable capture detected; notify API skipped (set unreadable_notify_url to enable)."
+        )
+        return False
+
+    reason = readability_result.message if readability_result is not None else "Low readability"
+    readability_confidence = readability_result.mean_confidence if readability_result is not None else 0.0
+    readability_tokens = readability_result.token_count if readability_result is not None else 0
+    u = notify_unreadable_capture(
+        notify_url=cfg.unreadable_notify_url,
+        detector_confidence=detector_confidence,
+        readability_confidence=readability_confidence,
+        readability_tokens=readability_tokens,
+        reason=reason,
+        api_token=cfg.unreadable_notify_token or None,
+        timeout_seconds=cfg.unreadable_notify_timeout_seconds,
+    )
+    print(f"Unreadable notify: {u.message} (status={u.status_code})")
+    if u.response_preview:
+        print(f"Unreadable notify response: {u.response_preview}")
+    return u.ok
+
+
 def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool = True) -> int:
     frame = cv2.imread(image_path)
     if frame is None:
@@ -127,7 +187,9 @@ def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool
     warped = warp_document(frame, quad, dst_size, cfg=cfg)
     result = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
 
-    if not can_save_by_readability(result, cfg):
+    can_save, readability_result = can_save_by_readability(result, cfg)
+    if not can_save:
+        notify_unreadable(cfg, confidence, readability_result)
         if show_windows:
             cv2.imshow(
                 "A4 Scanner - Input",
@@ -142,18 +204,7 @@ def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool
         return 3
 
     print(f"Detected with confidence: {confidence:.2f}")
-
-    # If upload is enabled and configured for memory mode, avoid saving to disk.
-    if cfg.upload_enabled and cfg.upload_url and cfg.upload_from_memory:
-        run_post_processors(result, image_path="", cfg=cfg)
-        print("Rectified image uploaded from memory (local file kept only if upload fails).")
-    else:
-        out_path = save_scan(result, cfg.save_dir)
-        run_post_processors(result, out_path, cfg)
-        if os.path.exists(out_path):
-            print(f"Saved rectified image: {out_path}")
-        else:
-            print("Upload successful; local file deleted after upload.")
+    persist_capture(result, cfg, readability_result=readability_result)
 
     if show_windows:
         cv2.imshow(
@@ -205,17 +256,36 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable OpenCV windows (useful on headless Ubuntu/Orange Pi).",
     )
+    parser.add_argument(
+        "--unreadable-notify-url",
+        type=str,
+        default="",
+        help="Optional API endpoint to call when readability gate rejects a capture.",
+    )
+    parser.add_argument(
+        "--unreadable-notify-token",
+        type=str,
+        default="",
+        help="Optional bearer token for unreadable-capture notify endpoint.",
+    )
     return parser.parse_args()
 
 
-def run_post_processors(image: np.ndarray, image_path: str, cfg: ScannerConfig) -> None:
+def run_post_processors(
+    image: np.ndarray,
+    image_path: str,
+    cfg: ScannerConfig,
+    readability_result: ReadabilityResult | None = None,
+) -> None:
     if cfg.enable_readability_check:
-        r = verify_readability(
-            image,
-            min_confidence=cfg.min_readability_confidence,
-            tesseract_cmd=cfg.tesseract_cmd,
-            mode=cfg.readability_mode,
-        )
+        r = readability_result
+        if r is None:
+            r = verify_readability(
+                image,
+                min_confidence=cfg.min_readability_confidence,
+                tesseract_cmd=cfg.tesseract_cmd,
+                mode=cfg.readability_mode,
+            )
         print(
             "Readability:",
             f"{r.message} | readable={r.readable} | mean_conf={r.mean_confidence:.2f} | tokens={r.token_count}",
@@ -263,9 +333,12 @@ def run_post_processors(image: np.ndarray, image_path: str, cfg: ScannerConfig) 
                 print(f"Warning: could not delete local copy: {exc}")
 
 
-def can_save_by_readability(image: np.ndarray, cfg: ScannerConfig) -> bool:
+def can_save_by_readability(
+    image: np.ndarray,
+    cfg: ScannerConfig,
+) -> tuple[bool, ReadabilityResult | None]:
     if not cfg.enable_readability_check or not cfg.require_readable_to_save:
-        return True
+        return True, None
 
     r = verify_readability(
         image,
@@ -279,7 +352,7 @@ def can_save_by_readability(image: np.ndarray, cfg: ScannerConfig) -> bool:
     )
     if not r.readable:
         print("Save skipped: flattened image is not readable by current OCR threshold.")
-    return r.readable
+    return r.readable, r
 
 
 def run_webcam(cfg: ScannerConfig) -> int:
@@ -309,6 +382,11 @@ def run_webcam(cfg: ScannerConfig) -> int:
     detect_hits = 0
     total_conf = 0.0
     save_count = 0
+    stable_frames = 0
+    missing_doc_frames = 0
+    awaiting_rearm = False
+    last_auto_capture_ts = 0.0
+    last_unreadable_notify_ts = 0.0
 
     t0 = time.time()
     prev_fps_t = time.time()
@@ -353,8 +431,50 @@ def run_webcam(cfg: ScannerConfig) -> int:
                 draw_quad(vis, active_quad, (0, 255, 255) if mode == "MANUAL" else (0, 255, 0))
                 warped = warp_document(frame, active_quad, dst_size, cfg=cfg)
                 warped_preview = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
+                missing_doc_frames = 0
+            else:
+                missing_doc_frames += 1
+                stable_frames = 0
 
-            put_status(vis, mode, confidence, fps, save_count)
+            if awaiting_rearm and missing_doc_frames >= max(1, cfg.auto_rearm_missing_frames):
+                awaiting_rearm = False
+                print("Auto capture re-armed: ready for next document.")
+
+            auto_active = cfg.auto_capture_enabled and mode == "AUTO"
+            if auto_active and active_quad is not None and not awaiting_rearm:
+                stable_frames += 1
+                cooldown_ok = (now - last_auto_capture_ts) >= max(0.0, cfg.auto_capture_cooldown_seconds)
+                if stable_frames >= max(1, cfg.auto_capture_stable_frames) and cooldown_ok:
+                    can_save, readability_result = can_save_by_readability(warped_preview, cfg)
+                    if can_save:
+                        persist_capture(warped_preview, cfg, readability_result=readability_result)
+                        save_count += 1
+                        awaiting_rearm = True
+                    else:
+                        notify_ok = False
+                        notify_cooldown_ok = (
+                            now - last_unreadable_notify_ts
+                        ) >= max(0.0, cfg.unreadable_notify_cooldown_seconds)
+                        if notify_cooldown_ok:
+                            notify_ok = notify_unreadable(cfg, confidence, readability_result)
+                            if notify_ok:
+                                last_unreadable_notify_ts = now
+                        if not notify_ok and not notify_cooldown_ok:
+                            print("Unreadable notify skipped: cooldown is active.")
+                        awaiting_rearm = False
+
+                    last_auto_capture_ts = now
+                    stable_frames = 0
+
+            if auto_active:
+                auto_status = (
+                    f"Auto capture: {stable_frames}/{max(1, cfg.auto_capture_stable_frames)}"
+                    + (" | waiting page reset" if awaiting_rearm else "")
+                )
+            else:
+                auto_status = "Auto capture: OFF (switch to AUTO mode)"
+
+            put_status(vis, mode, confidence, fps, save_count, auto_status)
             cv2.imshow(
                 "A4 Scanner",
                 fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
@@ -375,16 +495,6 @@ def run_webcam(cfg: ScannerConfig) -> int:
                 prev_quad = None
             elif key == ord("r"):
                 selector.reset()
-            elif key == ord("s"):
-                if can_save_by_readability(warped_preview, cfg):
-                    # Memory mode: do not create output file unless upload fails.
-                    if cfg.upload_enabled and cfg.upload_url and cfg.upload_from_memory:
-                        run_post_processors(warped_preview, image_path="", cfg=cfg)
-                    else:
-                        out_path = save_scan(warped_preview, cfg.save_dir)
-                        save_count += 1
-                        print(f"Saved: {out_path}")
-                        run_post_processors(warped_preview, out_path, cfg)
     finally:
         cap.release()
         cv2.destroyAllWindows()
@@ -411,6 +521,11 @@ def main() -> int:
         cfg.upload_url = args.upload_url
     if args.upload_token:
         cfg.upload_token = args.upload_token
+    if args.unreadable_notify_url:
+        cfg.unreadable_notify_enabled = True
+        cfg.unreadable_notify_url = args.unreadable_notify_url
+    if args.unreadable_notify_token:
+        cfg.unreadable_notify_token = args.unreadable_notify_token
     if args.tesseract_cmd:
         cfg.tesseract_cmd = args.tesseract_cmd
     if args.image:

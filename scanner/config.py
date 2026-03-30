@@ -67,3 +67,17 @@ class ScannerConfig:
     delete_after_upload_success: bool = True
     save_on_upload_fail: bool = True
 
+    # Fully automatic capture (no keyboard save required)
+    auto_capture_enabled: bool = True
+    auto_capture_stable_frames: int = 8
+    auto_capture_cooldown_seconds: float = 2.5
+    # Rearm auto-capture after this many consecutive frames without a valid document.
+    auto_rearm_missing_frames: int = 12
+
+    # Optional API call when a capture is rejected due to low readability.
+    unreadable_notify_enabled: bool = True
+    unreadable_notify_url: str = os.getenv("SCAN_UNREADABLE_NOTIFY_URL", "")
+    unreadable_notify_token: str = os.getenv("SCAN_UNREADABLE_NOTIFY_TOKEN", "")
+    unreadable_notify_timeout_seconds: int = 10
+    unreadable_notify_cooldown_seconds: float = 5.0
+

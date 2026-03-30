@@ -152,6 +152,13 @@ Run the scanner script:
 python main.py
 ```
 
+In webcam mode, scanning is fully automatic by default:
+- detect page
+- flatten page
+- readability gate
+- save/upload if readable
+- optional unreadable API notify if not readable
+
 Run on a saved image (single-shot validation):
 
 ```bash
@@ -228,8 +235,28 @@ Keyboard controls:
 - `a`: switch to Auto mode
 - `m`: switch to Manual mode
 - `r`: reset manual points
-- `s`: save current rectified frame
 - `q`: quit
+
+Auto capture behavior is configurable in `scanner/config.py`:
+- `auto_capture_enabled`
+- `auto_capture_stable_frames`
+- `auto_capture_cooldown_seconds`
+- `auto_rearm_missing_frames`
+
+Unreadable notify API can be configured by CLI:
+
+```bash
+python main.py --unreadable-notify-url "https://your-api.example/scan/unreadable" --unreadable-notify-token "YOUR_TOKEN"
+```
+
+Or by environment variables:
+
+```bash
+SCAN_UNREADABLE_NOTIFY_URL=https://your-api.example/scan/unreadable
+SCAN_UNREADABLE_NOTIFY_TOKEN=YOUR_TOKEN
+```
+
+For full integration details, see `AUTOMATION_INTEGRATION.md`.
 
 ## Input -> Output Pipeline
 
