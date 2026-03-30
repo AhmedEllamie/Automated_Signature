@@ -1,12 +1,13 @@
 # Automatic Paper Scanner Integration Guide
 
-This project now supports fully automatic scanning:
+This project now supports fully automatic scanning in one-shot cycles:
 
 - detects the paper in live camera mode
 - flattens (perspective-corrects) it
 - checks readability
 - if readable: saves locally and/or uploads
 - if unreadable: can send an API request to ask for recapture
+- after one attempt: capture is locked until reset API unlocks it
 
 No `S` key is required.
 
@@ -28,10 +29,11 @@ python main.py
 ```
 
 The scanner starts in `AUTO` mode and captures automatically when the page is stable.
+After that single attempt, capture is locked and waits for reset API response.
 
 ## 2) Automatic Workflow
 
-For each stable detected document:
+For each stable detected document (when lock is open):
 
 1. Detect page quad.
 2. Warp to A4-like top-down output.
@@ -41,8 +43,10 @@ For each stable detected document:
 5. If unreadable:
    - skip save
    - optionally call unreadable notification API
+6. Raise capture lock.
+7. Poll reset API until it returns allow/reset true, then unlock for next document.
 
-To avoid duplicates, auto-capture rearms only after the page disappears for a short period.
+This gives strict one-photo-per-cycle behavior.
 
 ## 3) Key Config Options
 
@@ -50,8 +54,11 @@ Edit `scanner/config.py`:
 
 - `auto_capture_enabled`: enable/disable fully automatic capture.
 - `auto_capture_stable_frames`: frames required before auto-capture.
-- `auto_capture_cooldown_seconds`: minimum delay between capture attempts.
-- `auto_rearm_missing_frames`: frames without document before next capture is allowed.
+- `single_capture_until_api_reset`: lock after one attempt.
+- `capture_reset_url`: API endpoint checked to unlock next capture.
+- `capture_reset_token`: optional bearer token for reset API.
+- `capture_reset_poll_interval_seconds`: API polling interval while locked.
+- `capture_reset_timeout_seconds`: reset API timeout.
 - `enable_readability_check`: run readability verification.
 - `require_readable_to_save`: block save/upload when unreadable.
 - `upload_enabled`, `upload_url`, `upload_token`: readable-scan upload target.
@@ -64,6 +71,8 @@ You can set API endpoints from command line:
 
 ```bash
 python main.py \
+  --capture-reset-url "https://api.example.com/scan/reset" \
+  --capture-reset-token "YOUR_RESET_TOKEN" \
   --upload-url "https://api.example.com/upload" \
   --upload-token "YOUR_UPLOAD_TOKEN" \
   --unreadable-notify-url "https://api.example.com/scan/unreadable" \
@@ -99,6 +108,19 @@ Payload example:
 }
 ```
 
+### 5.3 Reset/unlock API (required for next photo)
+
+- Method: `GET` (scanner polls while locked)
+- Auth: `Authorization: Bearer <token>` (optional)
+- Response: any JSON/text containing a truthy reset value
+
+Accepted truthy examples:
+
+- `{"allow_capture": true}`
+- `{"reset": true}`
+- `{"ready_for_next_capture": 1}`
+- plain text: `true` / `1` / `unlock`
+
 ## 6) Integration Patterns
 
 ### Pattern A: Save locally + process later
@@ -114,10 +136,12 @@ Payload example:
 ### Pattern C: Feedback loop to external system
 
 - Configure `unreadable_notify_url`.
+- Configure `capture_reset_url`.
 - Your backend receives unreadable events and can trigger:
   - UI message to user
   - buzzer/light feedback
   - retry instruction
+- When operator/system is ready for next photo, reset API returns `allow_capture=true`.
 
 ## 7) Minimal Backend Example (FastAPI)
 
@@ -137,6 +161,11 @@ async def upload(file: UploadFile = File(...)):
 async def unreadable_event(payload: dict):
     # TODO: trigger recapture workflow in your system
     return JSONResponse({"ok": True, "received": payload})
+
+@app.get("/scan/reset")
+async def reset_state():
+    # TODO: return True when your system wants scanner to take next photo
+    return {"allow_capture": True}
 ```
 
 ## 8) Notes for Embedding in Another Project

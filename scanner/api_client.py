@@ -15,6 +15,29 @@ class UploadResult:
     response_preview: str
 
 
+@dataclass
+class CaptureResetResult:
+    ok: bool
+    allow_capture: bool
+    status_code: int
+    message: str
+    response_preview: str
+
+
+def _to_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in {"1", "true", "yes", "y", "allow", "unlock", "reset", "ready"}:
+            return True
+        if v in {"0", "false", "no", "n", "deny", "lock", "wait", "pending"}:
+            return False
+    return None
+
+
 def upload_scan(
     image_path: str,
     upload_url: str,
@@ -73,6 +96,79 @@ def upload_scan_bytes(
             ok=False,
             status_code=0,
             message=f"Upload error: {exc}",
+            response_preview="",
+        )
+
+
+def check_capture_reset_api(
+    reset_url: str,
+    api_token: str | None = None,
+    timeout_seconds: int = 5,
+) -> CaptureResetResult:
+    headers = {"Accept": "application/json"}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+
+    try:
+        resp = requests.get(reset_url, headers=headers, timeout=timeout_seconds)
+        preview = (resp.text or "")[:280]
+        if not resp.ok:
+            return CaptureResetResult(
+                ok=False,
+                allow_capture=False,
+                status_code=resp.status_code,
+                message="Reset API request failed",
+                response_preview=preview,
+            )
+
+        allow_capture = False
+        message = "Capture remains locked"
+        parsed = False
+        try:
+            payload = resp.json()
+            parsed = True
+        except Exception:
+            payload = None
+
+        if parsed:
+            if isinstance(payload, dict):
+                for key in (
+                    "allow_capture",
+                    "reset",
+                    "ready_for_next_capture",
+                    "unlock",
+                    "clear_flag",
+                ):
+                    if key in payload:
+                        b = _to_bool(payload.get(key))
+                        if b is not None:
+                            allow_capture = b
+                            break
+            else:
+                b = _to_bool(payload)
+                if b is not None:
+                    allow_capture = b
+        else:
+            b = _to_bool(preview)
+            if b is not None:
+                allow_capture = b
+
+        if allow_capture:
+            message = "Capture unlocked by reset API"
+
+        return CaptureResetResult(
+            ok=True,
+            allow_capture=allow_capture,
+            status_code=resp.status_code,
+            message=message,
+            response_preview=preview,
+        )
+    except Exception as exc:
+        return CaptureResetResult(
+            ok=False,
+            allow_capture=False,
+            status_code=0,
+            message=f"Reset API error: {exc}",
             response_preview="",
         )
 

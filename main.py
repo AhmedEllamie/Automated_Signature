@@ -12,6 +12,7 @@ from scanner import (
     ManualSelector,
     ScannerConfig,
     a4_target_size,
+    check_capture_reset_api,
     compute_warp_short_side,
     detect_document_quad,
     enhance_for_scan,
@@ -159,6 +160,35 @@ def notify_unreadable(
     return u.ok
 
 
+def clear_capture_lock_if_api_allows(
+    cfg: ScannerConfig,
+    now: float,
+    capture_locked: bool,
+    last_reset_poll_ts: float,
+    last_reset_error_ts: float,
+) -> tuple[bool, float, float]:
+    if not capture_locked:
+        return capture_locked, last_reset_poll_ts, last_reset_error_ts
+    if not cfg.capture_reset_url:
+        return capture_locked, last_reset_poll_ts, last_reset_error_ts
+    if (now - last_reset_poll_ts) < max(0.05, cfg.capture_reset_poll_interval_seconds):
+        return capture_locked, last_reset_poll_ts, last_reset_error_ts
+
+    last_reset_poll_ts = now
+    reset_state = check_capture_reset_api(
+        reset_url=cfg.capture_reset_url,
+        api_token=cfg.capture_reset_token or None,
+        timeout_seconds=cfg.capture_reset_timeout_seconds,
+    )
+    if reset_state.ok and reset_state.allow_capture:
+        print("Capture lock cleared by reset API. Ready for next photo.")
+        return False, last_reset_poll_ts, last_reset_error_ts
+    if not reset_state.ok and (now - last_reset_error_ts) >= 5.0:
+        print(f"Reset API warning: {reset_state.message} (status={reset_state.status_code})")
+        last_reset_error_ts = now
+    return capture_locked, last_reset_poll_ts, last_reset_error_ts
+
+
 def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool = True) -> int:
     frame = cv2.imread(image_path)
     if frame is None:
@@ -255,6 +285,18 @@ def parse_args() -> argparse.Namespace:
         "--no-gui",
         action="store_true",
         help="Disable OpenCV windows (useful on headless Ubuntu/Orange Pi).",
+    )
+    parser.add_argument(
+        "--capture-reset-url",
+        type=str,
+        default="",
+        help="API endpoint that unlocks next capture when it returns allow_capture=true.",
+    )
+    parser.add_argument(
+        "--capture-reset-token",
+        type=str,
+        default="",
+        help="Optional bearer token for capture reset API.",
     )
     parser.add_argument(
         "--unreadable-notify-url",
@@ -375,6 +417,11 @@ def run_webcam(cfg: ScannerConfig) -> int:
     mode = cfg.start_mode.strip().upper() if cfg.start_mode else "AUTO"
     if mode not in {"AUTO", "MANUAL"}:
         mode = "AUTO"
+    if cfg.single_capture_until_api_reset and not cfg.capture_reset_url:
+        print(
+            "Warning: single_capture_until_api_reset is enabled without capture_reset_url. "
+            "Scanner will stay locked after first capture."
+        )
     prev_quad = None
     warped_preview = np.zeros((dst_size[1], dst_size[0], 3), dtype=np.uint8)
 
@@ -383,10 +430,9 @@ def run_webcam(cfg: ScannerConfig) -> int:
     total_conf = 0.0
     save_count = 0
     stable_frames = 0
-    missing_doc_frames = 0
-    awaiting_rearm = False
-    last_auto_capture_ts = 0.0
-    last_unreadable_notify_ts = 0.0
+    capture_locked = False
+    last_reset_poll_ts = 0.0
+    last_reset_error_ts = 0.0
 
     t0 = time.time()
     prev_fps_t = time.time()
@@ -431,46 +477,41 @@ def run_webcam(cfg: ScannerConfig) -> int:
                 draw_quad(vis, active_quad, (0, 255, 255) if mode == "MANUAL" else (0, 255, 0))
                 warped = warp_document(frame, active_quad, dst_size, cfg=cfg)
                 warped_preview = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
-                missing_doc_frames = 0
             else:
-                missing_doc_frames += 1
                 stable_frames = 0
 
-            if awaiting_rearm and missing_doc_frames >= max(1, cfg.auto_rearm_missing_frames):
-                awaiting_rearm = False
-                print("Auto capture re-armed: ready for next document.")
+            if cfg.single_capture_until_api_reset:
+                capture_locked, last_reset_poll_ts, last_reset_error_ts = clear_capture_lock_if_api_allows(
+                    cfg=cfg,
+                    now=now,
+                    capture_locked=capture_locked,
+                    last_reset_poll_ts=last_reset_poll_ts,
+                    last_reset_error_ts=last_reset_error_ts,
+                )
 
             auto_active = cfg.auto_capture_enabled and mode == "AUTO"
-            if auto_active and active_quad is not None and not awaiting_rearm:
+            if auto_active and active_quad is not None and not capture_locked:
                 stable_frames += 1
-                cooldown_ok = (now - last_auto_capture_ts) >= max(0.0, cfg.auto_capture_cooldown_seconds)
-                if stable_frames >= max(1, cfg.auto_capture_stable_frames) and cooldown_ok:
+                if stable_frames >= max(1, cfg.auto_capture_stable_frames):
                     can_save, readability_result = can_save_by_readability(warped_preview, cfg)
                     if can_save:
                         persist_capture(warped_preview, cfg, readability_result=readability_result)
                         save_count += 1
-                        awaiting_rearm = True
                     else:
-                        notify_ok = False
-                        notify_cooldown_ok = (
-                            now - last_unreadable_notify_ts
-                        ) >= max(0.0, cfg.unreadable_notify_cooldown_seconds)
-                        if notify_cooldown_ok:
-                            notify_ok = notify_unreadable(cfg, confidence, readability_result)
-                            if notify_ok:
-                                last_unreadable_notify_ts = now
-                        if not notify_ok and not notify_cooldown_ok:
-                            print("Unreadable notify skipped: cooldown is active.")
-                        awaiting_rearm = False
-
-                    last_auto_capture_ts = now
+                        notify_unreadable(cfg, confidence, readability_result)
+                    if cfg.single_capture_until_api_reset:
+                        capture_locked = True
+                        print("Capture lock raised: waiting for reset API before next photo.")
                     stable_frames = 0
 
             if auto_active:
-                auto_status = (
-                    f"Auto capture: {stable_frames}/{max(1, cfg.auto_capture_stable_frames)}"
-                    + (" | waiting page reset" if awaiting_rearm else "")
-                )
+                if capture_locked:
+                    if cfg.capture_reset_url:
+                        auto_status = "Auto capture: LOCKED | waiting reset API"
+                    else:
+                        auto_status = "Auto capture: LOCKED | set capture_reset_url"
+                else:
+                    auto_status = f"Auto capture: READY {stable_frames}/{max(1, cfg.auto_capture_stable_frames)}"
             else:
                 auto_status = "Auto capture: OFF (switch to AUTO mode)"
 
@@ -521,6 +562,10 @@ def main() -> int:
         cfg.upload_url = args.upload_url
     if args.upload_token:
         cfg.upload_token = args.upload_token
+    if args.capture_reset_url:
+        cfg.capture_reset_url = args.capture_reset_url
+    if args.capture_reset_token:
+        cfg.capture_reset_token = args.capture_reset_token
     if args.unreadable_notify_url:
         cfg.unreadable_notify_enabled = True
         cfg.unreadable_notify_url = args.unreadable_notify_url

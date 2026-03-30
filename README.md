@@ -158,6 +158,7 @@ In webcam mode, scanning is fully automatic by default:
 - readability gate
 - save/upload if readable
 - optional unreadable API notify if not readable
+- lock capture after one shot until reset API unlocks next shot
 
 Run on a saved image (single-shot validation):
 
@@ -240,18 +241,21 @@ Keyboard controls:
 Auto capture behavior is configurable in `scanner/config.py`:
 - `auto_capture_enabled`
 - `auto_capture_stable_frames`
-- `auto_capture_cooldown_seconds`
-- `auto_rearm_missing_frames`
+- `single_capture_until_api_reset`
+- `capture_reset_url`
+- `capture_reset_poll_interval_seconds`
 
-Unreadable notify API can be configured by CLI:
+Reset API + unreadable notify API can be configured by CLI:
 
 ```bash
-python main.py --unreadable-notify-url "https://your-api.example/scan/unreadable" --unreadable-notify-token "YOUR_TOKEN"
+python main.py --capture-reset-url "https://your-api.example/scan/reset" --capture-reset-token "YOUR_TOKEN" --unreadable-notify-url "https://your-api.example/scan/unreadable" --unreadable-notify-token "YOUR_TOKEN"
 ```
 
 Or by environment variables:
 
 ```bash
+SCAN_CAPTURE_RESET_URL=https://your-api.example/scan/reset
+SCAN_CAPTURE_RESET_TOKEN=YOUR_TOKEN
 SCAN_UNREADABLE_NOTIFY_URL=https://your-api.example/scan/unreadable
 SCAN_UNREADABLE_NOTIFY_TOKEN=YOUR_TOKEN
 ```

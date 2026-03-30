@@ -4,7 +4,7 @@ from .geometry import smooth_quad
 from .readability import verify_readability
 from .ui import ManualSelector
 from .warp import a4_target_size, compute_warp_short_side, enhance_for_scan, warp_document
-from .api_client import notify_unreadable_capture, upload_scan, upload_scan_bytes
+from .api_client import check_capture_reset_api, notify_unreadable_capture, upload_scan, upload_scan_bytes
 
 __all__ = [
     "ScannerConfig",
@@ -13,6 +13,7 @@ __all__ = [
     "verify_readability",
     "upload_scan",
     "upload_scan_bytes",
+    "check_capture_reset_api",
     "notify_unreadable_capture",
     "ManualSelector",
     "a4_target_size",

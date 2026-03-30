@@ -70,14 +70,16 @@ class ScannerConfig:
     # Fully automatic capture (no keyboard save required)
     auto_capture_enabled: bool = True
     auto_capture_stable_frames: int = 8
-    auto_capture_cooldown_seconds: float = 2.5
-    # Rearm auto-capture after this many consecutive frames without a valid document.
-    auto_rearm_missing_frames: int = 12
+    # True = one capture attempt, then lock until reset API allows next capture.
+    single_capture_until_api_reset: bool = True
+    capture_reset_url: str = os.getenv("SCAN_CAPTURE_RESET_URL", "")
+    capture_reset_token: str = os.getenv("SCAN_CAPTURE_RESET_TOKEN", "")
+    capture_reset_poll_interval_seconds: float = 1.0
+    capture_reset_timeout_seconds: int = 5
 
     # Optional API call when a capture is rejected due to low readability.
     unreadable_notify_enabled: bool = True
     unreadable_notify_url: str = os.getenv("SCAN_UNREADABLE_NOTIFY_URL", "")
     unreadable_notify_token: str = os.getenv("SCAN_UNREADABLE_NOTIFY_TOKEN", "")
     unreadable_notify_timeout_seconds: int = 10
-    unreadable_notify_cooldown_seconds: float = 5.0
 
