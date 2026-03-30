@@ -12,6 +12,7 @@ from scanner import (
     ManualSelector,
     ScannerConfig,
     a4_target_size,
+    compute_warp_short_side,
     detect_document_quad,
     enhance_for_scan,
     smooth_quad,
@@ -56,6 +57,39 @@ def encode_png_bytes(image: np.ndarray) -> bytes:
     return buf.tobytes()
 
 
+def _camera_api_preference(cfg: ScannerConfig) -> int:
+    name = (cfg.camera_backend or "").strip().upper()
+    if name in ("MSMF", "CAP_MSMF", "MEDIA_FOUNDATION"):
+        return cv2.CAP_MSMF
+    if name in ("DSHOW", "DIRECTSHOW", "CAP_DSHOW"):
+        return cv2.CAP_DSHOW
+    return int(cv2.CAP_ANY)
+
+
+def apply_camera_settings(cap: cv2.VideoCapture, cfg: ScannerConfig) -> tuple[int, int]:
+    fourcc = (cfg.camera_fourcc or "").strip().upper()
+    if len(fourcc) == 4:
+        try:
+            code = cv2.VideoWriter_fourcc(*fourcc)
+            cap.set(cv2.CAP_PROP_FOURCC, code)
+        except Exception:
+            pass
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.frame_width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.frame_height)
+    cap.read()
+    aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(
+        f"Camera actual resolution: {aw}x{ah} (requested {cfg.frame_width}x{cfg.frame_height})"
+    )
+    if aw < cfg.frame_width * 0.95 or ah < cfg.frame_height * 0.95:
+        print(
+            "Hint: If Windows Camera shows higher resolution, try ScannerConfig.camera_backend "
+            "'MSMF' or 'DSHOW', or set camera_fourcc to '' / 'MJPG' and retry."
+        )
+    return aw, ah
+
+
 def fit_for_display(image: np.ndarray, max_width: int, max_height: int) -> np.ndarray:
     h, w = image.shape[:2]
     if w <= max_width and h <= max_height:
@@ -71,7 +105,9 @@ def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool
         print(f"Error: Cannot read image: {image_path}")
         return 1
 
-    dst_size = a4_target_size(cfg.warp_short_side, cfg.a4_ratio)
+    fh, fw = frame.shape[:2]
+    warp_short = compute_warp_short_side(fw, fh, cfg)
+    dst_size = a4_target_size(warp_short, cfg.a4_ratio)
     quad, confidence, _debug = detect_document_quad(frame, cfg)
     vis = frame.copy()
 
@@ -88,7 +124,7 @@ def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool
         return 2
 
     draw_quad(vis, quad, (0, 255, 0))
-    warped = warp_document(frame, quad, dst_size)
+    warped = warp_document(frame, quad, dst_size, cfg=cfg)
     result = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
 
     if not can_save_by_readability(result, cfg):
@@ -247,14 +283,15 @@ def can_save_by_readability(image: np.ndarray, cfg: ScannerConfig) -> bool:
 
 
 def run_webcam(cfg: ScannerConfig) -> int:
-    dst_size = a4_target_size(cfg.warp_short_side, cfg.a4_ratio)
-
-    cap = cv2.VideoCapture(cfg.camera_index)
+    api = _camera_api_preference(cfg)
+    cap = cv2.VideoCapture(cfg.camera_index, api)
     if not cap.isOpened():
         print("Error: Cannot open camera. Check camera index or webcam connection.")
         return 1
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.frame_width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.frame_height)
+    aw, ah = apply_camera_settings(cap, cfg)
+    warp_short = compute_warp_short_side(aw, ah, cfg)
+    dst_size = a4_target_size(warp_short, cfg.a4_ratio)
+    print(f"Rectified output size (approx A4): {dst_size[0]}x{dst_size[1]} (short side {warp_short})")
 
     cv2.namedWindow("A4 Scanner", cv2.WINDOW_NORMAL)
     cv2.namedWindow("Rectified", cv2.WINDOW_NORMAL)
@@ -314,7 +351,7 @@ def run_webcam(cfg: ScannerConfig) -> int:
 
             if active_quad is not None:
                 draw_quad(vis, active_quad, (0, 255, 255) if mode == "MANUAL" else (0, 255, 0))
-                warped = warp_document(frame, active_quad, dst_size)
+                warped = warp_document(frame, active_quad, dst_size, cfg=cfg)
                 warped_preview = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
 
             put_status(vis, mode, confidence, fps, save_count)

@@ -60,6 +60,13 @@ Flatbed scanners are not always available, and mobile captures often produce til
 - Hardware: standard USB webcam (UVC).
 - Camera: fixed height and angle.
 
+## Camera resolution and flattened output quality
+
+- The **live stream** is whatever your driver delivers after OpenCV sets width/height (and optional **MJPEG** `camera_fourcc`). If the console prints something like `1920x1080` while you asked for `3840x2160`, the camera or USB bandwidth did not accept full 4K — fix drivers, cable, or try `camera_fourcc = "MJPG"`.
+- **Preview windows** are resized only for display (`max_display_width` / `max_display_height`). They do **not** reduce the resolution of the saved rectified image.
+- **Flattened image sharpness** is mainly limited by (1) real capture resolution, (2) `warp_short_side` / `scale_warp_to_capture` / `warp_capture_scale`, and (3) `warp_interpolation` (`cubic` or `lanczos4` is sharper than `linear`, but slower).
+- On **Orange Pi**, lower `frame_width` / `frame_height`, set `scale_warp_to_capture = False`, use a smaller `warp_short_side`, and `warp_interpolation = "linear"`.
+
 ## Project Structure
 
 Current layout:
