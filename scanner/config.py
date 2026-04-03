@@ -13,6 +13,12 @@ class ScannerConfig:
     frame_height: int = 2160
     # Use MJPEG on many UVC cameras so 4K is possible over USB; set "" to let the driver choose.
     camera_fourcc: str = "MJPG"
+    # Camera focus controls (hardware/backend dependent).
+    camera_autofocus_enabled: bool = True
+    # Set >=0 to request manual focus value when autofocus is disabled.
+    camera_manual_focus: float = -1.0
+    # Focus increment used by keyboard shortcuts +/- in webcam mode.
+    camera_focus_step: float = 5.0
     preview_scale: float = 1.0
 
     gaussian_kernel: int = 5
@@ -48,8 +54,8 @@ class ScannerConfig:
 
     # Optional readability verification (OCR based)
     enable_readability_check: bool = True
-    readability_mode: str = "ocr"  # "fast" for Orange Pi, "ocr" for Tesseract
-    min_readability_confidence: float = 45.0
+    readability_mode: str = "fast"  # "fast" for Orange Pi, "ocr" for Tesseract
+    min_readability_confidence: float = 6.0
     tesseract_cmd: str = os.getenv("TESSERACT_CMD", "")
     require_readable_to_save: bool = True
 
@@ -70,7 +76,7 @@ class ScannerConfig:
     # Fully automatic capture (no keyboard save required)
     auto_capture_enabled: bool = True
     auto_capture_stable_frames: int = 8
-    # True = one capture attempt, then lock until reset API allows next capture.
+    # True = one readable capture, then lock until reset (API or manual).
     single_capture_until_api_reset: bool = True
     capture_reset_url: str = os.getenv("SCAN_CAPTURE_RESET_URL", "")
     capture_reset_token: str = os.getenv("SCAN_CAPTURE_RESET_TOKEN", "")
@@ -78,7 +84,7 @@ class ScannerConfig:
     capture_reset_timeout_seconds: int = 5
 
     # Optional API call when a capture is rejected due to low readability.
-    unreadable_notify_enabled: bool = True
+    unreadable_notify_enabled: bool = False
     unreadable_notify_url: str = os.getenv("SCAN_UNREADABLE_NOTIFY_URL", "")
     unreadable_notify_token: str = os.getenv("SCAN_UNREADABLE_NOTIFY_TOKEN", "")
     unreadable_notify_timeout_seconds: int = 10

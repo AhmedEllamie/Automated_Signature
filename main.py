@@ -33,6 +33,7 @@ def put_status(
     fps: float,
     saves: int,
     auto_status: str,
+    focus_status: str,
 ) -> None:
     lines = [
         f"Mode: {mode}",
@@ -40,7 +41,8 @@ def put_status(
         f"FPS: {fps:.1f}",
         f"Saved: {saves}",
         auto_status,
-        "Starts in AUTO | Keys: [a] auto  [m] manual  [r] reset  [q] quit",
+        focus_status,
+        "Keys: [a] auto  [m] manual  [s] save  [r] reset  [f] AF on/off  [+/- or 1/2] focus out/in  [q] quit",
     ]
     y = 28
     for line in lines:
@@ -78,6 +80,13 @@ def _camera_api_preference(cfg: ScannerConfig) -> int:
 
 
 def apply_camera_settings(cap: cv2.VideoCapture, cfg: ScannerConfig) -> tuple[int, int]:
+    autofocus_prop = getattr(cv2, "CAP_PROP_AUTOFOCUS", None)
+    if autofocus_prop is not None:
+        try:
+            cap.set(autofocus_prop, 1.0 if cfg.camera_autofocus_enabled else 0.0)
+        except Exception:
+            pass
+
     fourcc = (cfg.camera_fourcc or "").strip().upper()
     if len(fourcc) == 4:
         try:
@@ -87,9 +96,23 @@ def apply_camera_settings(cap: cv2.VideoCapture, cfg: ScannerConfig) -> tuple[in
             pass
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.frame_width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.frame_height)
+
+    focus_prop = getattr(cv2, "CAP_PROP_FOCUS", None)
+    if not cfg.camera_autofocus_enabled and focus_prop is not None and cfg.camera_manual_focus >= 0:
+        try:
+            cap.set(focus_prop, float(cfg.camera_manual_focus))
+        except Exception:
+            pass
+
     cap.read()
     aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if autofocus_prop is not None:
+        try:
+            af_now = cap.get(autofocus_prop)
+            print(f"Camera autofocus: {'ON' if af_now >= 0.5 else 'OFF'}")
+        except Exception:
+            pass
     print(
         f"Camera actual resolution: {aw}x{ah} (requested {cfg.frame_width}x{cfg.frame_height})"
     )
@@ -282,6 +305,19 @@ def parse_args() -> argparse.Namespace:
         help="Full path to tesseract executable (if not in PATH).",
     )
     parser.add_argument(
+        "--autofocus",
+        type=str,
+        choices=("on", "off"),
+        default="",
+        help="Camera autofocus mode.",
+    )
+    parser.add_argument(
+        "--manual-focus",
+        type=float,
+        default=None,
+        help="Manual focus value (applied when autofocus is off).",
+    )
+    parser.add_argument(
         "--no-gui",
         action="store_true",
         help="Disable OpenCV windows (useful on headless Ubuntu/Orange Pi).",
@@ -417,10 +453,11 @@ def run_webcam(cfg: ScannerConfig) -> int:
     mode = cfg.start_mode.strip().upper() if cfg.start_mode else "AUTO"
     if mode not in {"AUTO", "MANUAL"}:
         mode = "AUTO"
-    if cfg.single_capture_until_api_reset and not cfg.capture_reset_url:
+    capture_lock_enabled = cfg.single_capture_until_api_reset
+    if capture_lock_enabled and not cfg.capture_reset_url:
         print(
-            "Warning: single_capture_until_api_reset is enabled without capture_reset_url. "
-            "Scanner will stay locked after first capture."
+            "Info: capture reset API is not set. "
+            "After one readable save, scanner locks until manual reset key [r]."
         )
     prev_quad = None
     warped_preview = np.zeros((dst_size[1], dst_size[0], 3), dtype=np.uint8)
@@ -433,6 +470,23 @@ def run_webcam(cfg: ScannerConfig) -> int:
     capture_locked = False
     last_reset_poll_ts = 0.0
     last_reset_error_ts = 0.0
+    autofocus_prop = getattr(cv2, "CAP_PROP_AUTOFOCUS", None)
+    focus_prop = getattr(cv2, "CAP_PROP_FOCUS", None)
+    focus_step = max(0.1, float(cfg.camera_focus_step))
+    focus_is_auto = cfg.camera_autofocus_enabled
+    if autofocus_prop is not None:
+        try:
+            focus_is_auto = cap.get(autofocus_prop) >= 0.5
+        except Exception:
+            pass
+    manual_focus_value: float | None = cfg.camera_manual_focus if cfg.camera_manual_focus >= 0 else None
+    if focus_prop is not None:
+        try:
+            f_now = cap.get(focus_prop)
+            if f_now >= 0:
+                manual_focus_value = f_now
+        except Exception:
+            pass
 
     t0 = time.time()
     prev_fps_t = time.time()
@@ -480,7 +534,7 @@ def run_webcam(cfg: ScannerConfig) -> int:
             else:
                 stable_frames = 0
 
-            if cfg.single_capture_until_api_reset:
+            if capture_lock_enabled and cfg.capture_reset_url:
                 capture_locked, last_reset_poll_ts, last_reset_error_ts = clear_capture_lock_if_api_allows(
                     cfg=cfg,
                     now=now,
@@ -497,11 +551,14 @@ def run_webcam(cfg: ScannerConfig) -> int:
                     if can_save:
                         persist_capture(warped_preview, cfg, readability_result=readability_result)
                         save_count += 1
+                        if capture_lock_enabled:
+                            capture_locked = True
+                            if cfg.capture_reset_url:
+                                print("Capture lock raised: waiting for reset API before next photo.")
+                            else:
+                                print("Capture lock raised: press [r] to allow next photo.")
                     else:
                         notify_unreadable(cfg, confidence, readability_result)
-                    if cfg.single_capture_until_api_reset:
-                        capture_locked = True
-                        print("Capture lock raised: waiting for reset API before next photo.")
                     stable_frames = 0
 
             if auto_active:
@@ -509,17 +566,37 @@ def run_webcam(cfg: ScannerConfig) -> int:
                     if cfg.capture_reset_url:
                         auto_status = "Auto capture: LOCKED | waiting reset API"
                     else:
-                        auto_status = "Auto capture: LOCKED | set capture_reset_url"
+                        auto_status = "Auto capture: LOCKED | press [r] to reset"
                 else:
                     auto_status = f"Auto capture: READY {stable_frames}/{max(1, cfg.auto_capture_stable_frames)}"
             else:
                 auto_status = "Auto capture: OFF (switch to AUTO mode)"
 
-            put_status(vis, mode, confidence, fps, save_count, auto_status)
-            cv2.imshow(
-                "A4 Scanner",
-                fit_for_display(vis, cfg.max_display_width, cfg.max_display_height),
+            if focus_prop is not None:
+                try:
+                    f_now = cap.get(focus_prop)
+                    if f_now >= 0:
+                        manual_focus_value = f_now
+                except Exception:
+                    pass
+            if autofocus_prop is None and focus_prop is None:
+                focus_status = "Focus: unsupported by camera/backend"
+            elif focus_is_auto:
+                focus_status = "Focus: AUTO"
+            elif manual_focus_value is not None:
+                focus_status = f"Focus: MANUAL {manual_focus_value:.1f}"
+            else:
+                focus_status = "Focus: MANUAL"
+
+            put_status(vis, mode, confidence, fps, save_count, auto_status, focus_status)
+            scanner_view = fit_for_display(vis, cfg.max_display_width, cfg.max_display_height)
+            selector.set_viewport(
+                source_width=vis.shape[1],
+                source_height=vis.shape[0],
+                display_width=scanner_view.shape[1],
+                display_height=scanner_view.shape[0],
             )
+            cv2.imshow("A4 Scanner", scanner_view)
             cv2.imshow(
                 "Rectified",
                 fit_for_display(warped_preview, cfg.max_display_width, cfg.max_display_height),
@@ -534,8 +611,101 @@ def run_webcam(cfg: ScannerConfig) -> int:
             elif key == ord("m"):
                 mode = "MANUAL"
                 prev_quad = None
-            elif key == ord("r"):
+            elif key in (ord("r"), ord("R")):
                 selector.reset()
+                prev_quad = None
+                stable_frames = 0
+                if mode == "MANUAL":
+                    print("Manual points reset.")
+                if capture_lock_enabled and capture_locked:
+                    capture_locked = False
+                    stable_frames = 0
+                    print("Capture lock cleared manually. Ready for next photo.")
+            elif key in (ord("s"), ord("S")):
+                if active_quad is None:
+                    if mode == "MANUAL":
+                        print("Save skipped: set 4 manual corners first.")
+                    else:
+                        print("Save skipped: no document detected.")
+                elif capture_lock_enabled and capture_locked:
+                    if cfg.capture_reset_url:
+                        print("Save blocked: capture is locked until reset API unlocks it.")
+                    else:
+                        print("Save blocked: capture is locked. Press [r] to reset.")
+                else:
+                    can_save, readability_result = can_save_by_readability(warped_preview, cfg)
+                    if can_save:
+                        persist_capture(warped_preview, cfg, readability_result=readability_result)
+                        save_count += 1
+                        if capture_lock_enabled:
+                            capture_locked = True
+                            if cfg.capture_reset_url:
+                                print("Capture lock raised: waiting for reset API before next photo.")
+                            else:
+                                print("Capture lock raised: press [r] to allow next photo.")
+                    else:
+                        notify_unreadable(cfg, confidence, readability_result)
+            elif key == ord("f"):
+                if autofocus_prop is None:
+                    print("Autofocus toggle is not supported by this camera/backend.")
+                else:
+                    target_auto = not focus_is_auto
+                    ok_af = cap.set(autofocus_prop, 1.0 if target_auto else 0.0)
+                    if ok_af:
+                        focus_is_auto = target_auto
+                        mismatch_note = ""
+                        try:
+                            af_now = cap.get(autofocus_prop)
+                            if af_now >= 0 and ((af_now >= 0.5) != focus_is_auto):
+                                mismatch_note = " (driver reports different state)"
+                        except Exception:
+                            pass
+                        print(f"Camera autofocus: {'ON' if focus_is_auto else 'OFF'}{mismatch_note}")
+                    else:
+                        print("Warning: could not change autofocus mode.")
+            elif key in (ord("-"), ord("_"), ord("+"), ord("="), ord("["), ord("]"), ord("1"), ord("2")):
+                if focus_prop is None:
+                    print("Manual focus is not supported by this camera/backend.")
+                else:
+                    if manual_focus_value is None:
+                        try:
+                            f_now = cap.get(focus_prop)
+                            manual_focus_value = f_now if f_now >= 0 else 0.0
+                        except Exception:
+                            manual_focus_value = 0.0
+
+                    focus_in_keys = {ord("-"), ord("_"), ord("["), ord("1")}
+                    delta = -focus_step if key in focus_in_keys else focus_step
+                    target_focus = max(0.0, float(manual_focus_value) + delta)
+                    was_auto = focus_is_auto
+                    autofocus_turned_off = False
+                    if was_auto and autofocus_prop is not None:
+                        if cap.set(autofocus_prop, 0.0):
+                            focus_is_auto = False
+                            autofocus_turned_off = True
+                        else:
+                            print("Warning: could not disable autofocus; trying manual focus anyway.")
+
+                    ok_focus = cap.set(focus_prop, target_focus)
+                    try:
+                        f_now = cap.get(focus_prop)
+                        manual_focus_value = f_now if f_now >= 0 else target_focus
+                    except Exception:
+                        manual_focus_value = target_focus
+
+                    if ok_focus:
+                        focus_is_auto = False
+                        if autofocus_turned_off:
+                            print("Camera autofocus: OFF (manual focus mode).")
+                        direction = "IN" if key in focus_in_keys else "OUT"
+                        print(f"Manual focus {direction}: {manual_focus_value:.1f}")
+                    else:
+                        if autofocus_turned_off and autofocus_prop is not None:
+                            if cap.set(autofocus_prop, 1.0):
+                                focus_is_auto = True
+                            print("Warning: manual focus is not supported; autofocus restored.")
+                        else:
+                            print("Warning: manual focus adjustment failed.")
     finally:
         cap.release()
         cv2.destroyAllWindows()
@@ -562,8 +732,14 @@ def main() -> int:
         cfg.upload_url = args.upload_url
     if args.upload_token:
         cfg.upload_token = args.upload_token
+    if args.autofocus:
+        cfg.camera_autofocus_enabled = args.autofocus == "on"
+    if args.manual_focus is not None:
+        cfg.camera_autofocus_enabled = False
+        cfg.camera_manual_focus = args.manual_focus
     if args.capture_reset_url:
         cfg.capture_reset_url = args.capture_reset_url
+        cfg.single_capture_until_api_reset = True
     if args.capture_reset_token:
         cfg.capture_reset_token = args.capture_reset_token
     if args.unreadable_notify_url:

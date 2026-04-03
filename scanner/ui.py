@@ -11,12 +11,37 @@ class ManualSelector:
         self.window_name = window_name
         self.points: list[tuple[int, int]] = []
         self.enabled = False
+        self._source_size: tuple[int, int] = (1, 1)  # width, height
+        self._display_size: tuple[int, int] = (1, 1)  # width, height
+
+    def set_viewport(
+        self,
+        *,
+        source_width: int,
+        source_height: int,
+        display_width: int,
+        display_height: int,
+    ) -> None:
+        self._source_size = (max(1, int(source_width)), max(1, int(source_height)))
+        self._display_size = (max(1, int(display_width)), max(1, int(display_height)))
+
+    def _display_to_source(self, x: int, y: int) -> tuple[int, int]:
+        src_w, src_h = self._source_size
+        disp_w, disp_h = self._display_size
+
+        sx = src_w / float(disp_w)
+        sy = src_h / float(disp_h)
+        mx = int(round(x * sx))
+        my = int(round(y * sy))
+        mx = max(0, min(src_w - 1, mx))
+        my = max(0, min(src_h - 1, my))
+        return mx, my
 
     def on_mouse(self, event: int, x: int, y: int, _flags: int, _userdata: object) -> None:
         if not self.enabled:
             return
         if event == cv2.EVENT_LBUTTONDOWN and len(self.points) < 4:
-            self.points.append((x, y))
+            self.points.append(self._display_to_source(x, y))
 
     def reset(self) -> None:
         self.points.clear()

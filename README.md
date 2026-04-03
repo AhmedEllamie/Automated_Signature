@@ -157,13 +157,18 @@ In webcam mode, scanning is fully automatic by default:
 - flatten page
 - readability gate
 - save/upload if readable
-- optional unreadable API notify if not readable
-- lock capture after one shot until reset API unlocks next shot
+- no REST API required unless you explicitly enable upload/notify/reset endpoints
 
 Run on a saved image (single-shot validation):
 
 ```bash
 python main.py --image "C:\path\to\your_photo.jpg"
+```
+
+Disable camera autofocus (optional) and set manual focus value:
+
+```bash
+python main.py --autofocus off --manual-focus 30
 ```
 
 Ubuntu/Orange Pi headless image mode (no windows):
@@ -235,15 +240,27 @@ Keyboard controls:
 
 - `a`: switch to Auto mode
 - `m`: switch to Manual mode
+- `s`: save current rectified frame (manual capture)
 - `r`: reset manual points
+- `f`: toggle camera autofocus on/off (press again to return to auto)
+- `-`: focus in (near) in manual focus mode
+- `+`: focus out (far) in manual focus mode
+- `1` / `2`: fallback focus in/out keys for keyboard layouts where +/- are hard to type
 - `q`: quit
 
 Auto capture behavior is configurable in `scanner/config.py`:
 - `auto_capture_enabled`
 - `auto_capture_stable_frames`
-- `single_capture_until_api_reset`
+- `single_capture_until_api_reset` (default `True`; one readable save per cycle, then lock)
 - `capture_reset_url`
 - `capture_reset_poll_interval_seconds`
+
+Camera focus behavior is configurable in `scanner/config.py`:
+- `camera_autofocus_enabled`
+- `camera_manual_focus`
+- `camera_focus_step`
+
+If `capture_reset_url` is empty, lock is cleared manually with `r`.
 
 Reset API + unreadable notify API can be configured by CLI:
 
