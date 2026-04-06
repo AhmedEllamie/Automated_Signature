@@ -46,6 +46,13 @@ Flatbed scanners are not always available, and mobile captures often produce til
 - Warp the source quadrilateral to a target A4 ratio (1:1.414).
 - Produce a flat, readable scan.
 
+### 6) Final Enhancement (optional)
+
+- Apply gamma correction to gently lift mid-tones.
+- Apply CLAHE on LAB luminance channel for local contrast recovery.
+- Boost saturation to improve color separation on stamps/highlights.
+- Apply sharpening to improve text edge clarity.
+
 ## Features
 
 - Auto-Detect mode for fast operation.
@@ -239,14 +246,23 @@ Upload storage strategy (in `scanner/config.py`):
 Keyboard controls:
 
 - `a`: switch to Auto mode
-- `m`: switch to Manual mode
-- `s`: save current rectified frame (manual capture)
+- `m`: switch to Manual mode and enter FOCUS step
+- `n`: in Manual mode, switch to POINTS step (4-corner selection)
+- `p`: in Manual mode, return to FOCUS step
+- `s`: save current rectified frame (with enhancement if enabled)
 - `r`: reset manual points
 - `f`: toggle camera autofocus on/off (press again to return to auto)
-- `-`: focus in (near) in manual focus mode
-- `+`: focus out (far) in manual focus mode
+- `-`: focus in (near), in Auto or Manual FOCUS step
+- `+`: focus out (far), in Auto or Manual FOCUS step
 - `1` / `2`: fallback focus in/out keys for keyboard layouts where +/- are hard to type
 - `q`: quit
+
+Manual workflow:
+- Press `m` -> adjust focus with `+/-` (or `1/2`) in FOCUS step.
+- Press `n` -> enter POINTS step and click 4 corners.
+- Press `s` -> save warped result.
+- Press `s` again in Manual mode to save again (no capture reset required in Manual mode).
+- Press `p` any time in Manual mode to return to FOCUS step.
 
 Auto capture behavior is configurable in `scanner/config.py`:
 - `auto_capture_enabled`
@@ -259,6 +275,14 @@ Camera focus behavior is configurable in `scanner/config.py`:
 - `camera_autofocus_enabled`
 - `camera_manual_focus`
 - `camera_focus_step`
+
+Enhancement behavior is configurable in `scanner/config.py`:
+- `apply_scan_enhancement`
+- `enhance_gamma`
+- `enhance_clahe_clip_limit`
+- `enhance_clahe_tile_size`
+- `enhance_saturation_boost`
+- `enhance_sharpen_strength`
 
 Output orientation behavior is configurable in `scanner/config.py`:
 - `auto_rotate_landscape_to_portrait` (default `True`)
@@ -292,6 +316,7 @@ Camera Frame
   -> Contour Selection (4 points)
   -> Corner Sorting
   -> Homography Warp
+  -> Gamma + CLAHE(LAB) + Saturation + Sharpen (optional)
   -> Rectified A4 Output
 ```
 

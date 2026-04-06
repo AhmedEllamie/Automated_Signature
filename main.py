@@ -35,6 +35,8 @@ def put_status(
     saves: int,
     auto_status: str,
     focus_status: str,
+    manual_status: str,
+    keys_status: str,
 ) -> None:
     lines = [
         f"Mode: {mode}",
@@ -43,7 +45,8 @@ def put_status(
         f"Saved: {saves}",
         auto_status,
         focus_status,
-        "Keys: [a] auto  [m] manual  [s] save  [r] reset  [f] AF on/off  [+/- or 1/2] focus out/in  [q] quit",
+        manual_status,
+        keys_status,
     ]
     y = 28
     for line in lines:
@@ -262,7 +265,7 @@ def process_single_image(image_path: str, cfg: ScannerConfig, show_windows: bool
 
     draw_quad(vis, quad, (0, 255, 0))
     warped = warp_document(frame, quad, dst_size, cfg=cfg)
-    result = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
+    result = enhance_for_scan(warped, cfg=cfg) if cfg.apply_scan_enhancement else warped
 
     can_save, readability_result = can_save_by_readability(result, cfg)
     if not can_save:
@@ -488,6 +491,7 @@ def run_webcam(cfg: ScannerConfig) -> int:
     mode = cfg.start_mode.strip().upper() if cfg.start_mode else "AUTO"
     if mode not in {"AUTO", "MANUAL"}:
         mode = "AUTO"
+    manual_step = "FOCUS"
     capture_lock_enabled = cfg.single_capture_until_api_reset
     if capture_lock_enabled and not cfg.capture_reset_url:
         print(
@@ -555,17 +559,18 @@ def run_webcam(cfg: ScannerConfig) -> int:
                         active_quad = smooth_quad(quad, prev_quad, cfg.smoothing_alpha)
                         prev_quad = active_quad
             else:
-                selector.enabled = True
+                selector.enabled = manual_step == "POINTS"
                 vis = selector.draw(vis)
-                manual_quad = selector.get_quad()
-                if manual_quad is not None:
-                    active_quad = manual_quad
-                    confidence = 1.0
+                if manual_step == "POINTS":
+                    manual_quad = selector.get_quad()
+                    if manual_quad is not None:
+                        active_quad = manual_quad
+                        confidence = 1.0
 
             if active_quad is not None:
                 draw_quad(vis, active_quad, (0, 255, 255) if mode == "MANUAL" else (0, 255, 0))
                 warped = warp_document(frame, active_quad, dst_size, cfg=cfg)
-                warped_preview = enhance_for_scan(warped) if cfg.apply_scan_enhancement else warped
+                warped_preview = enhance_for_scan(warped, cfg=cfg) if cfg.apply_scan_enhancement else warped
             else:
                 stable_frames = 0
 
@@ -623,7 +628,28 @@ def run_webcam(cfg: ScannerConfig) -> int:
             else:
                 focus_status = "Focus: MANUAL"
 
-            put_status(vis, mode, confidence, fps, save_count, auto_status, focus_status)
+            if mode == "MANUAL":
+                if manual_step == "FOCUS":
+                    manual_status = "Manual step: FOCUS (adjust lens with +/-)"
+                else:
+                    manual_status = "Manual step: POINTS (click 4 corners)"
+            else:
+                manual_status = "Manual step: OFF"
+            keys_status = (
+                "Keys: [a] auto [m] manual focus [n] points [p] focus [s] save [r] reset "
+                "[f] AF on/off [+/- or 1/2] focus out/in [q] quit"
+            )
+            put_status(
+                vis,
+                mode,
+                confidence,
+                fps,
+                save_count,
+                auto_status,
+                focus_status,
+                manual_status,
+                keys_status,
+            )
             scanner_view = fit_for_display(vis, cfg.max_display_width, cfg.max_display_height)
             selector.set_viewport(
                 source_width=vis.shape[1],
@@ -643,9 +669,27 @@ def run_webcam(cfg: ScannerConfig) -> int:
             if key == ord("a"):
                 mode = "AUTO"
                 selector.reset()
+                manual_step = "FOCUS"
             elif key == ord("m"):
+                if mode != "MANUAL":
+                    selector.reset()
                 mode = "MANUAL"
+                manual_step = "FOCUS"
                 prev_quad = None
+                stable_frames = 0
+                print("Manual mode: FOCUS step. Adjust lens with [+/-], then press [n] for 4-point selection.")
+            elif key in (ord("n"), ord("N")):
+                if mode == "MANUAL":
+                    if manual_step != "POINTS":
+                        selector.reset()
+                    manual_step = "POINTS"
+                    stable_frames = 0
+                    print("Manual mode: POINTS step. Click 4 corners, then press [s] to save.")
+            elif key in (ord("p"), ord("P")):
+                if mode == "MANUAL":
+                    manual_step = "FOCUS"
+                    stable_frames = 0
+                    print("Manual mode: returned to FOCUS step.")
             elif key in (ord("r"), ord("R")):
                 selector.reset()
                 prev_quad = None
@@ -659,10 +703,13 @@ def run_webcam(cfg: ScannerConfig) -> int:
             elif key in (ord("s"), ord("S")):
                 if active_quad is None:
                     if mode == "MANUAL":
-                        print("Save skipped: set 4 manual corners first.")
+                        if manual_step != "POINTS":
+                            print("Save skipped: manual mode is in FOCUS step. Press [n], set 4 corners, then save.")
+                        else:
+                            print("Save skipped: set 4 manual corners first.")
                     else:
                         print("Save skipped: no document detected.")
-                elif capture_lock_enabled and capture_locked:
+                elif mode != "MANUAL" and capture_lock_enabled and capture_locked:
                     if cfg.capture_reset_url:
                         print("Save blocked: capture is locked until reset API unlocks it.")
                     else:
@@ -672,7 +719,7 @@ def run_webcam(cfg: ScannerConfig) -> int:
                     if can_save:
                         persist_capture(warped_preview, cfg, readability_result=readability_result)
                         save_count += 1
-                        if capture_lock_enabled:
+                        if mode != "MANUAL" and capture_lock_enabled:
                             capture_locked = True
                             if cfg.capture_reset_url:
                                 print("Capture lock raised: waiting for reset API before next photo.")
@@ -701,6 +748,8 @@ def run_webcam(cfg: ScannerConfig) -> int:
             elif key in (ord("-"), ord("_"), ord("+"), ord("="), ord("["), ord("]"), ord("1"), ord("2")):
                 if focus_prop is None:
                     print("Manual focus is not supported by this camera/backend.")
+                elif mode == "MANUAL" and manual_step != "FOCUS":
+                    print("Focus adjustment is available in MANUAL FOCUS step. Press [p] to return to focus.")
                 else:
                     if manual_focus_value is None:
                         try:

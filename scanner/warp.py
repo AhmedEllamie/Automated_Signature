@@ -81,15 +81,38 @@ def warp_document(
     return warped
 
 
-def enhance_for_scan(warped: np.ndarray) -> np.ndarray:
-    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    enhanced = cv2.adaptiveThreshold(
-        gray,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        31,
-        9,
-    )
-    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+def _gamma_lut(gamma: float) -> np.ndarray:
+    gamma = max(0.1, float(gamma))
+    inv_gamma = 1.0 / gamma
+    values = np.arange(256, dtype=np.float32) / 255.0
+    table = np.power(values, inv_gamma) * 255.0
+    return np.clip(table, 0.0, 255.0).astype(np.uint8)
+
+
+def enhance_for_scan(warped: np.ndarray, cfg: ScannerConfig | None = None) -> np.ndarray:
+    if warped.size == 0:
+        return warped
+
+    gamma = max(0.1, float(getattr(cfg, "enhance_gamma", 1.08)))
+    clahe_clip = max(0.1, float(getattr(cfg, "enhance_clahe_clip_limit", 2.0)))
+    clahe_tile = max(2, int(getattr(cfg, "enhance_clahe_tile_size", 8)))
+    saturation_boost = max(0.0, float(getattr(cfg, "enhance_saturation_boost", 1.10)))
+    sharpen_strength = max(0.0, float(getattr(cfg, "enhance_sharpen_strength", 0.55)))
+
+    gamma_corrected = cv2.LUT(warped, _gamma_lut(gamma))
+
+    lab = cv2.cvtColor(gamma_corrected, cv2.COLOR_BGR2LAB)
+    l_chan, a_chan, b_chan = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=clahe_clip, tileGridSize=(clahe_tile, clahe_tile))
+    l_chan = clahe.apply(l_chan)
+    contrast_boosted = cv2.cvtColor(cv2.merge((l_chan, a_chan, b_chan)), cv2.COLOR_LAB2BGR)
+
+    hsv = cv2.cvtColor(contrast_boosted, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * saturation_boost, 0.0, 255.0)
+    saturated = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    if sharpen_strength <= 1e-6:
+        return saturated
+    blurred = cv2.GaussianBlur(saturated, (0, 0), sigmaX=1.1, sigmaY=1.1)
+    return cv2.addWeighted(saturated, 1.0 + sharpen_strength, blurred, -sharpen_strength, 0)
 

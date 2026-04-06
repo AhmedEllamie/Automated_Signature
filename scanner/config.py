@@ -55,7 +55,13 @@ class ScannerConfig:
     start_mode: str = "AUTO"  # AUTO starts live flattening immediately
 
     save_dir: str = "output"
-    apply_scan_enhancement: bool = False
+    apply_scan_enhancement: bool = True
+    # Enhancement pipeline (gamma -> CLAHE in LAB -> saturation boost -> sharpening).
+    enhance_gamma: float = 1.08
+    enhance_clahe_clip_limit: float = 2.0
+    enhance_clahe_tile_size: int = 8
+    enhance_saturation_boost: float = 1.10
+    enhance_sharpen_strength: float = 0.55
 
     # Optional readability verification (OCR based)
     enable_readability_check: bool = True
