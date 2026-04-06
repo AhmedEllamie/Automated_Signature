@@ -55,6 +55,15 @@ class ScannerConfig:
     start_mode: str = "AUTO"  # AUTO starts live flattening immediately
 
     save_dir: str = "output"
+    # Lens distortion correction (fisheye model) applied before document detection.
+    fisheye_correction_enabled: bool = True
+    # Path to .npz calibration file with keys: "K" (3x3 camera matrix), "D" (4x1 coefficients).
+    fisheye_calibration_file: str = os.getenv(
+        "SCAN_FISHEYE_CALIBRATION_FILE",
+        "calibration/fisheye_test.npz",
+    )
+    # 0.0 = tighter crop with straighter lines, 1.0 = wider FOV with more edge distortion.
+    fisheye_balance: float = 0.2
     apply_scan_enhancement: bool = True
     # Enhancement pipeline (gamma -> CLAHE in LAB -> saturation boost -> sharpening).
     enhance_gamma: float = 1.08
