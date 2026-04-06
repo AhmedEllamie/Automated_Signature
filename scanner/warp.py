@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from .config import ScannerConfig
+from .geometry import edge_lengths
 
 
 def a4_target_size(short_side: int, a4_ratio: float) -> tuple[int, int]:
@@ -35,6 +36,27 @@ def _interpolation_from_config(cfg: ScannerConfig) -> int:
     return mapping.get(name, cv2.INTER_CUBIC)
 
 
+def _source_quad_for_portrait_output(quad: np.ndarray, cfg: ScannerConfig | None) -> np.ndarray:
+    q = quad.astype(np.float32)
+    if cfg is None or not getattr(cfg, "auto_rotate_landscape_to_portrait", False):
+        return q
+
+    top, right, bottom, left = edge_lengths(q)
+    horizontal = (top + bottom) * 0.5
+    vertical = (right + left) * 0.5
+
+    # Already portrait-like in the source view: keep original orientation.
+    if horizontal <= vertical * 1.02:
+        return q
+
+    direction = (getattr(cfg, "landscape_rotation_direction", "ccw") or "ccw").strip().lower()
+    if direction in {"cw", "clockwise", "right"}:
+        # Make left edge become the top edge in output.
+        return np.roll(q, 1, axis=0).astype(np.float32)  # [bl, tl, tr, br]
+    # Default: make right edge become the top edge in output.
+    return np.roll(q, -1, axis=0).astype(np.float32)  # [tr, br, bl, tl]
+
+
 def warp_document(
     frame: np.ndarray,
     quad: np.ndarray,
@@ -42,11 +64,12 @@ def warp_document(
     cfg: ScannerConfig | None = None,
 ) -> np.ndarray:
     width, height = dst_size
+    src_quad = _source_quad_for_portrait_output(quad, cfg)
     dst = np.array(
         [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
         dtype=np.float32,
     )
-    matrix = cv2.getPerspectiveTransform(quad.astype(np.float32), dst)
+    matrix = cv2.getPerspectiveTransform(src_quad, dst)
     interp = _interpolation_from_config(cfg) if cfg is not None else cv2.INTER_LINEAR
     warped = cv2.warpPerspective(
         frame,

@@ -4,9 +4,9 @@ import os
 
 @dataclass
 class ScannerConfig:
+    # Linux/Ubuntu: first USB webcam is usually 0. Use 1 if you have multiple cameras.
     camera_index: int = 1
-    # Windows: OpenCV may default to a backend that only offers 1080p even when the cam is 4K-capable.
-    # If console shows 1920x1080 but you requested 4K, try "MSMF" or "DSHOW" (one often negotiates higher modes).
+    # Windows: try "MSMF" or "DSHOW" if resolution is wrong. Linux: leave "" (V4L2) or set "V4L2".
     camera_backend: str = "DSHOW"
     # Requested capture size (USB cams may fall back if unsupported — check console for actual size).
     frame_width: int = 3840
@@ -42,6 +42,11 @@ class ScannerConfig:
     warp_short_side_max: int = 4000
     # Perspective resampling: linear (fast), cubic (default), lanczos4 (slowest, often sharpest).
     warp_interpolation: str = "cubic"
+    # If the detected page looks landscape in the camera view, rotate it to portrait on output.
+    auto_rotate_landscape_to_portrait: bool = True
+    # Rotation direction used only when auto_rotate_landscape_to_portrait is active.
+    # "ccw" fixes the common case where paper is rotated 90 degrees to the right (clockwise) in camera.
+    landscape_rotation_direction: str = "ccw"  # "ccw" or "cw"
     max_display_width: int = 900
     max_display_height: int = 700
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from datetime import datetime
 
@@ -72,11 +73,34 @@ def encode_png_bytes(image: np.ndarray) -> bytes:
 
 def _camera_api_preference(cfg: ScannerConfig) -> int:
     name = (cfg.camera_backend or "").strip().upper()
-    if name in ("MSMF", "CAP_MSMF", "MEDIA_FOUNDATION"):
-        return cv2.CAP_MSMF
-    if name in ("DSHOW", "DIRECTSHOW", "CAP_DSHOW"):
-        return cv2.CAP_DSHOW
+    if sys.platform == "win32":
+        if name in ("MSMF", "CAP_MSMF", "MEDIA_FOUNDATION"):
+            return cv2.CAP_MSMF
+        if name in ("DSHOW", "DIRECTSHOW", "CAP_DSHOW"):
+            return cv2.CAP_DSHOW
+        return int(cv2.CAP_ANY)
+    if name in ("V4L2", "CAP_V4L2"):
+        return int(cv2.CAP_V4L2)
+    v4l2 = getattr(cv2, "CAP_V4L2", None)
+    if sys.platform.startswith("linux") and v4l2 is not None and not name:
+        return int(v4l2)
     return int(cv2.CAP_ANY)
+
+
+def _open_video_capture(cfg: ScannerConfig) -> cv2.VideoCapture | None:
+    api = _camera_api_preference(cfg)
+    cap = cv2.VideoCapture(cfg.camera_index, api)
+    if cap.isOpened():
+        return cap
+    if cfg.camera_index != 0:
+        cap0 = cv2.VideoCapture(0, api)
+        if cap0.isOpened():
+            print(f"Note: opened camera index 0 (index {cfg.camera_index} failed).")
+            return cap0
+    cap_any = cv2.VideoCapture(cfg.camera_index)
+    if cap_any.isOpened():
+        return cap_any
+    return None
 
 
 def apply_camera_settings(cap: cv2.VideoCapture, cfg: ScannerConfig) -> tuple[int, int]:
@@ -318,6 +342,12 @@ def parse_args() -> argparse.Namespace:
         help="Manual focus value (applied when autofocus is off).",
     )
     parser.add_argument(
+        "--camera",
+        type=int,
+        default=None,
+        help="Camera device index (Ubuntu: usually 0 for first USB webcam).",
+    )
+    parser.add_argument(
         "--no-gui",
         action="store_true",
         help="Disable OpenCV windows (useful on headless Ubuntu/Orange Pi).",
@@ -434,10 +464,15 @@ def can_save_by_readability(
 
 
 def run_webcam(cfg: ScannerConfig) -> int:
-    api = _camera_api_preference(cfg)
-    cap = cv2.VideoCapture(cfg.camera_index, api)
-    if not cap.isOpened():
-        print("Error: Cannot open camera. Check camera index or webcam connection.")
+    cap = _open_video_capture(cfg)
+    if cap is None or not cap.isOpened():
+        print("Error: Cannot open camera.")
+        print(f"- Tried index {cfg.camera_index} (use --camera N or set ScannerConfig.camera_index).")
+        print("- On Ubuntu the first webcam is usually index 0: python main.py --camera 0")
+        if sys.platform.startswith("linux"):
+            print('- List devices: v4l2-ctl --list-devices   (install: sudo apt install v4l-utils)')
+            print("- Permissions: sudo usermod -aG video $USER  (then log out and back in)")
+            print('- If config has camera_backend "DSHOW"/"MSMF", leave it empty on Linux or use "V4L2".')
         return 1
     aw, ah = apply_camera_settings(cap, cfg)
     warp_short = compute_warp_short_side(aw, ah, cfg)
@@ -737,6 +772,8 @@ def main() -> int:
     if args.manual_focus is not None:
         cfg.camera_autofocus_enabled = False
         cfg.camera_manual_focus = args.manual_focus
+    if args.camera is not None:
+        cfg.camera_index = args.camera
     if args.capture_reset_url:
         cfg.capture_reset_url = args.capture_reset_url
         cfg.single_capture_until_api_reset = True

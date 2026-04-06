@@ -260,6 +260,10 @@ Camera focus behavior is configurable in `scanner/config.py`:
 - `camera_manual_focus`
 - `camera_focus_step`
 
+Output orientation behavior is configurable in `scanner/config.py`:
+- `auto_rotate_landscape_to_portrait` (default `True`)
+- `landscape_rotation_direction` (`"ccw"` or `"cw"`)
+
 If `capture_reset_url` is empty, lock is cleared manually with `r`.
 
 Reset API + unreadable notify API can be configured by CLI:
