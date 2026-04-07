@@ -277,6 +277,17 @@ def cmd_serve_api(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve_flask(args: argparse.Namespace) -> int:
+    try:
+        from PythonVersion.flask_app.app import create_app
+    except ImportError as ex:
+        raise RuntimeError("Flask app is unavailable. Install PythonVersion requirements first.") from ex
+
+    app = create_app(get_service_provider())
+    app.run(host=args.host, port=args.port, debug=args.reload)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PythonVersion CLI for Diwan signature printer.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -359,6 +370,12 @@ def build_parser() -> argparse.ArgumentParser:
     api.add_argument("--port", type=int, default=5000)
     api.add_argument("--reload", action="store_true")
     api.set_defaults(func=cmd_serve_api)
+
+    flask_api = sub.add_parser("serve-flask", help="Run Flask server with frontend UI.")
+    flask_api.add_argument("--host", default="0.0.0.0")
+    flask_api.add_argument("--port", type=int, default=5001)
+    flask_api.add_argument("--reload", action="store_true")
+    flask_api.set_defaults(func=cmd_serve_flask)
 
     return parser
 

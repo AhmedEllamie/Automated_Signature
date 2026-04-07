@@ -7,6 +7,7 @@ Python port of the selected printer workflow files from the C# project.
 - Printer contract and implementation (`IPrinterService`, `PrinterService`)
 - SVG to G-code converter (`SvgConverter`) with path parsing and curve flattening
 - Printer API controller parity via FastAPI routes
+- Flask API + simple HTML/JS frontend (`Capture`, `Print`, `Upload`, `ChangePen`, `Status`)
 - Dependency wiring module
 - Printer settings model
 - Print-approval workflow service
@@ -21,6 +22,7 @@ Python port of the selected printer workflow files from the C# project.
 - `services/approval/` - mock approval service
 - `services/print_approval/` - approval orchestration
 - `stores/` - in-memory request log backend
+- `flask_app/` - Flask backend + static frontend
 - `main.py` - CLI
 
 ## Install
@@ -41,6 +43,8 @@ pip install -r PythonVersion\requirements.txt
 
 ## Run API
 
+FastAPI version:
+
 ```bash
 python -m PythonVersion.main serve-api --host 0.0.0.0 --port 5000
 ```
@@ -55,6 +59,42 @@ Routes are available under `/printer`, for example:
 - `POST /printer/print/bulk`
 - `POST /printer/print-with-approval`
 - `GET /printer/requests/{request_id}`
+
+Flask + frontend version:
+
+```bash
+python -m PythonVersion.main serve-flask --host 0.0.0.0 --port 5001
+```
+
+Open:
+- `http://localhost:5001/` for the frontend page.
+
+Flask APIs are available under `/api`, including:
+- `POST /api/connect`
+- `POST /api/disconnect`
+- `GET /api/status`
+- `POST /api/upload`
+- `POST /api/print`
+- `POST /api/void`
+- `POST /api/change-pen/start`
+- `POST /api/change-pen/finish`
+- `POST /api/change-pen` (body mode: `start` or `finish`)
+- `POST /api/reset`
+- `POST /api/capture/request`
+- `POST /api/capture`
+- `GET /api/capture/latest`
+- `GET /api/capture/latest/image`
+- `GET /api/requests/{request_id}`
+- `GET /api/requests?count=10`
+- `GET /api/health`
+- `GET /api/config`
+
+### Capture integration environment variables (Flask)
+
+- `CAPTURE_RESET_URL` (required for `POST /api/capture/request`)
+- `CAPTURE_RESET_TOKEN` (optional bearer token)
+- `CAPTURE_RESET_TIMEOUT_SECONDS` (optional, default `8.0`)
+- `CAPTURE_RESET_METHOD` (optional, default `POST`)
 
 ## Run CLI
 
