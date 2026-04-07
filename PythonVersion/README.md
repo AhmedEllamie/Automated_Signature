@@ -70,11 +70,22 @@ python -m PythonVersion.main status
 python -m PythonVersion.main generate --svg ./signature.svg --print-request-json '{"scale":1,"rotation":0,"invertY":true}'
 python -m PythonVersion.main print --svg ./signature.svg --print-request-json ./print_request.json --auto-connect
 python -m PythonVersion.main bulk-print --svg ./signature.svg --print-request-json ./print_request.json --copies 3 --auto-connect
+python -m PythonVersion.main distance-stats
+python -m PythonVersion.main reset-distance
+python -m PythonVersion.main set-pen-max-distance --meters 2.5
 python -m PythonVersion.main pen-change-start --auto-connect
 python -m PythonVersion.main pen-change-finish --auto-connect
 python -m PythonVersion.main print-with-approval --signature-svg ./signature.svg --request-json ./approval_request.json --paper-image ./paper.jpg --auto-connect
 python -m PythonVersion.main get-request --request-id 11111111-1111-1111-1111-111111111111
 ```
+
+`generate` now includes `svgTotalDistanceMm`, and print responses include:
+- `svg_total_distance_mm` (planned SVG travel)
+- `executed_distance_mm` (actual executed SVG travel)
+- `execution_percent` (actual/plan, excludes reset/eject commands)
+- `cumulative_distance_mm` (persisted total across jobs, reset with `reset-distance`)
+- `status` includes `remaining_pen_percent`, computed as:
+  - `((max_pen_distance_m - (cumulative_distance_mm / 1000)) / max_pen_distance_m) * 100`
 
 ## Linux Ubuntu notes
 

@@ -95,12 +95,15 @@ def cmd_status(_: argparse.Namespace) -> int:
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
+    provider = get_service_provider()
     request = _build_print_request(args.print_request_json)
     gcode = _convert_svg_for_cli(args.svg, request)
+    svg_distance = provider.printer_service.calculate_svg_distance_mm(gcode)
     _print_json(
         {
             "message": f"Generated {len(gcode)} G-code commands.",
             "commandCount": len(gcode),
+            "svgTotalDistanceMm": round(svg_distance, 3),
             "gcode": gcode,
         }
     )
@@ -232,6 +235,35 @@ def cmd_get_request(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_distance_stats(_: argparse.Namespace) -> int:
+    provider = get_service_provider()
+    _print_json(provider.printer_service.get_distance_stats())
+    return 0
+
+
+def cmd_reset_distance(_: argparse.Namespace) -> int:
+    provider = get_service_provider()
+    _print_json(
+        {
+            "message": "Cumulative distance reset to 0 mm.",
+            "stats": provider.printer_service.reset_cumulative_distance(),
+        }
+    )
+    return 0
+
+
+def cmd_set_pen_max_distance(args: argparse.Namespace) -> int:
+    provider = get_service_provider()
+    stats = provider.printer_service.set_max_pen_distance_m(args.meters)
+    _print_json(
+        {
+            "message": f"Max pen distance set to {args.meters} meters.",
+            "stats": stats,
+        }
+    )
+    return 0
+
+
 def cmd_serve_api(args: argparse.Namespace) -> int:
     try:
         import uvicorn
@@ -311,6 +343,16 @@ def build_parser() -> argparse.ArgumentParser:
     request = sub.add_parser("get-request", help="Get latest in-memory request log by request ID.")
     request.add_argument("--request-id", required=True)
     request.set_defaults(func=cmd_get_request)
+
+    distance_stats = sub.add_parser("distance-stats", help="Show pen movement distance statistics.")
+    distance_stats.set_defaults(func=cmd_distance_stats)
+
+    reset_distance = sub.add_parser("reset-distance", help="Reset cumulative pen movement distance.")
+    reset_distance.set_defaults(func=cmd_reset_distance)
+
+    set_pen_max = sub.add_parser("set-pen-max-distance", help="Set max supported pen distance in meters.")
+    set_pen_max.add_argument("--meters", required=True, type=float)
+    set_pen_max.set_defaults(func=cmd_set_pen_max_distance)
 
     api = sub.add_parser("serve-api", help="Run FastAPI server.")
     api.add_argument("--host", default="0.0.0.0")

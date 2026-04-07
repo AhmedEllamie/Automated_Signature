@@ -124,6 +124,10 @@ class PrintResponse:
     commands_sent: int = 0
     copies: int = 0
     total_commands_sent: int = 0
+    svg_total_distance_mm: float = 0.0
+    executed_distance_mm: float = 0.0
+    execution_percent: float = 0.0
+    cumulative_distance_mm: float = 0.0
 
 
 @dataclass
@@ -131,6 +135,13 @@ class PrinterStatus:
     is_open: bool = False
     port_name: str = "N/A"
     is_printing: bool = False
+    current_svg_total_distance_mm: float = 0.0
+    current_executed_distance_mm: float = 0.0
+    current_execution_percent: float = 0.0
+    cumulative_distance_mm: float = 0.0
+    max_pen_distance_m: float = 0.0
+    used_pen_distance_m: float = 0.0
+    remaining_pen_percent: float = 0.0
 
 
 @dataclass

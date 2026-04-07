@@ -63,3 +63,15 @@ class IPrinterService(ABC):
     async def pen_change_finish(self) -> PrintResponse:
         raise NotImplementedError
 
+    @abstractmethod
+    def get_distance_stats(self) -> dict[str, float]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def reset_cumulative_distance(self) -> dict[str, float]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_max_pen_distance_m(self, meters: float) -> dict[str, float]:
+        raise NotImplementedError
+

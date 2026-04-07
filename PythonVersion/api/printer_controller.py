@@ -134,9 +134,11 @@ def create_printer_router(provider: ServiceProvider | None = None) -> APIRouter:
 
         svg_stream = _read_upload_to_stream(svg)
         gcode = _convert_svg(svg_stream, req)
+        svg_distance = provider.printer_service.calculate_svg_distance_mm(gcode)
         return {
             "message": f"Generated {len(gcode)} G-code commands.",
             "commandCount": len(gcode),
+            "svgTotalDistanceMm": round(svg_distance, 3),
             "gcode": gcode,
         }
 
