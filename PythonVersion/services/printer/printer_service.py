@@ -121,6 +121,28 @@ class PrinterService(IPrinterService):
         finally:
             self._end_print_job()
 
+    async def pen_change_start(self) -> PrintResponse:
+        self._begin_print_job()
+        try:
+            await asyncio.to_thread(self._execute_pen_change_start)
+            return PrintResponse(
+                message="Pen change start complete. Replace pen, then run pen-change-finish.",
+                commands_sent=2,
+            )
+        finally:
+            self._end_print_job()
+
+    async def pen_change_finish(self) -> PrintResponse:
+        self._begin_print_job()
+        try:
+            await asyncio.to_thread(self._execute_pen_change_finish)
+            return PrintResponse(
+                message="Pen change finish complete. Printer is ready to continue.",
+                commands_sent=2,
+            )
+        finally:
+            self._end_print_job()
+
     def _begin_print_job(self) -> None:
         with self._print_lock:
             if self._is_printing:
@@ -190,6 +212,20 @@ class PrinterService(IPrinterService):
             print("=== Starting eject sequence ===")
             self._eject_paper()
             print("=== Void cycle complete ===")
+
+    def _execute_pen_change_start(self) -> None:
+        print("=== Starting pen-change-start ===")
+        self._send("G90")
+        self._send("G1 E7.5 F5000")
+        print("Pen moved to change position (E7.5)")
+        print("=== Pen-change-start complete ===")
+
+    def _execute_pen_change_finish(self) -> None:
+        print("=== Starting pen-change-finish ===")
+        self._send("G90")
+        self._send("G1 E0.0 F5000")
+        print("Pen moved to ready/up position (E0.0)")
+        print("=== Pen-change-finish complete ===")
 
     def _eject_paper(self) -> None:
         print("  Ejecting: Pen up...")

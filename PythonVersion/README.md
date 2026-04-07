@@ -70,6 +70,8 @@ python -m PythonVersion.main status
 python -m PythonVersion.main generate --svg ./signature.svg --print-request-json '{"scale":1,"rotation":0,"invertY":true}'
 python -m PythonVersion.main print --svg ./signature.svg --print-request-json ./print_request.json --auto-connect
 python -m PythonVersion.main bulk-print --svg ./signature.svg --print-request-json ./print_request.json --copies 3 --auto-connect
+python -m PythonVersion.main pen-change-start --auto-connect
+python -m PythonVersion.main pen-change-finish --auto-connect
 python -m PythonVersion.main print-with-approval --signature-svg ./signature.svg --request-json ./approval_request.json --paper-image ./paper.jpg --auto-connect
 python -m PythonVersion.main get-request --request-id 11111111-1111-1111-1111-111111111111
 ```

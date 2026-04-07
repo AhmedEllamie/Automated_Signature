@@ -146,6 +146,38 @@ def cmd_bulk_print(args: argparse.Namespace) -> int:
     return asyncio.run(_cmd_bulk_print_async(args))
 
 
+async def _cmd_pen_change_start_async(args: argparse.Namespace) -> int:
+    provider = get_service_provider()
+    auto_opened = _ensure_connected(args.com_port, args.baud_rate, args.auto_connect)
+    try:
+        result = await provider.printer_service.pen_change_start()
+        _print_json(asdict(result))
+        return 0
+    finally:
+        if auto_opened:
+            provider.printer_service.close_port()
+
+
+def cmd_pen_change_start(args: argparse.Namespace) -> int:
+    return asyncio.run(_cmd_pen_change_start_async(args))
+
+
+async def _cmd_pen_change_finish_async(args: argparse.Namespace) -> int:
+    provider = get_service_provider()
+    auto_opened = _ensure_connected(args.com_port, args.baud_rate, args.auto_connect)
+    try:
+        result = await provider.printer_service.pen_change_finish()
+        _print_json(asdict(result))
+        return 0
+    finally:
+        if auto_opened:
+            provider.printer_service.close_port()
+
+
+def cmd_pen_change_finish(args: argparse.Namespace) -> int:
+    return asyncio.run(_cmd_pen_change_finish_async(args))
+
+
 async def _cmd_print_with_approval_async(args: argparse.Namespace) -> int:
     provider = get_service_provider()
     auto_opened = _ensure_connected(args.com_port, args.baud_rate, args.auto_connect)
@@ -253,6 +285,18 @@ def build_parser() -> argparse.ArgumentParser:
     bulk.add_argument("--baud-rate", dest="baud_rate", type=int, default=None)
     bulk.add_argument("--auto-connect", action=argparse.BooleanOptionalAction, default=True)
     bulk.set_defaults(func=cmd_bulk_print)
+
+    pen_change_start = sub.add_parser("pen-change-start", help="Move pen to change position.")
+    pen_change_start.add_argument("--com-port", dest="com_port", default=None)
+    pen_change_start.add_argument("--baud-rate", dest="baud_rate", type=int, default=None)
+    pen_change_start.add_argument("--auto-connect", action=argparse.BooleanOptionalAction, default=True)
+    pen_change_start.set_defaults(func=cmd_pen_change_start)
+
+    pen_change_finish = sub.add_parser("pen-change-finish", help="Move pen back to ready/up position.")
+    pen_change_finish.add_argument("--com-port", dest="com_port", default=None)
+    pen_change_finish.add_argument("--baud-rate", dest="baud_rate", type=int, default=None)
+    pen_change_finish.add_argument("--auto-connect", action=argparse.BooleanOptionalAction, default=True)
+    pen_change_finish.set_defaults(func=cmd_pen_change_finish)
 
     approval = sub.add_parser("print-with-approval", help="Run approval workflow and print/void.")
     approval.add_argument("--signature-svg", required=True)

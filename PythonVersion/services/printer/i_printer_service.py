@@ -55,3 +55,11 @@ class IPrinterService(ABC):
     async def void_print(self) -> PrintResponse:
         raise NotImplementedError
 
+    @abstractmethod
+    async def pen_change_start(self) -> PrintResponse:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def pen_change_finish(self) -> PrintResponse:
+        raise NotImplementedError
+
