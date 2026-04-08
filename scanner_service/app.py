@@ -8,8 +8,6 @@ from typing import Any
 import cv2
 from flask import Flask, Response, jsonify, request
 
-from scanner.calibration import FisheyeUndistorter
-from scanner.camera import apply_camera_settings, open_video_capture
 from scanner.config import ScannerConfig
 
 from .models import STATUS_FAILED, STATUS_QUEUED, STATUS_RUNNING, STATUS_SUCCEEDED
@@ -53,7 +51,8 @@ def create_app(
 
     @app.get("/health")
     def health() -> Response:
-        return jsonify({"ok": True, "status": "ready"})
+        camera = worker.get_camera_status()
+        return jsonify({"ok": True, "status": "ready", "camera": camera})
 
     @app.get("/session/manual-config")
     def get_manual_config() -> Response:
@@ -176,44 +175,29 @@ def create_app(
             target_width = max(0, int(width_raw))
         except Exception:
             target_width = 0
-        fisheye_enabled = str(fisheye_raw).strip().lower() not in {"0", "false", "no", "off"}
-
-        if not worker.acquire_camera(timeout_seconds=0.2):
-            return jsonify({"ok": False, "error": "camera_busy", "detail": "capture job or stream already using camera"}), 409
-
-        cap = open_video_capture(cfg)
-        if cap is None or not cap.isOpened():
-            worker.release_camera()
-            return jsonify({"ok": False, "error": "camera_unavailable"}), 503
-
-        apply_camera_settings(cap, cfg)
-        undistorter = FisheyeUndistorter(cfg) if fisheye_enabled else None
+        _fisheye_enabled = str(fisheye_raw).strip().lower() not in {"0", "false", "no", "off"}
         frame_delay = 1.0 / fps
 
         def _generate() -> Any:
-            try:
-                while True:
-                    ok, frame = cap.read()
-                    if not ok or frame is None:
-                        break
-                    if undistorter is not None:
-                        frame = undistorter.apply(frame)
-                    if target_width > 0 and frame.shape[1] > target_width:
-                        h = int(frame.shape[0] * (target_width / float(frame.shape[1])))
-                        frame = cv2.resize(frame, (target_width, max(1, h)), interpolation=cv2.INTER_AREA)
-                    ok_jpg, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-                    if not ok_jpg or buf is None:
-                        continue
-                    payload = buf.tobytes()
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n"
-                        b"Cache-Control: no-store\r\n\r\n" + payload + b"\r\n"
-                    )
-                    time.sleep(frame_delay)
-            finally:
-                cap.release()
-                worker.release_camera()
+            while True:
+                frame, _, _, _ = worker.get_latest_frame_snapshot()
+                if frame is None:
+                    time.sleep(0.08)
+                    continue
+                if target_width > 0 and frame.shape[1] > target_width:
+                    h = int(frame.shape[0] * (target_width / float(frame.shape[1])))
+                    frame = cv2.resize(frame, (target_width, max(1, h)), interpolation=cv2.INTER_AREA)
+                ok_jpg, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                if not ok_jpg or buf is None:
+                    time.sleep(0.01)
+                    continue
+                payload = buf.tobytes()
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Cache-Control: no-store\r\n\r\n" + payload + b"\r\n"
+                )
+                time.sleep(frame_delay)
 
         return Response(
             _generate(),

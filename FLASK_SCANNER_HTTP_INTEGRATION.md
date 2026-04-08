@@ -53,10 +53,10 @@ Legacy combined endpoint (still supported):
 
 Important behavior:
 
-- Stream holds camera lock while connected.
-- If a capture job is running, stream returns `409 camera_busy`.
-- While stream is open, capture jobs also wait/fail with busy behavior depending caller timing.
-- Recommended: close stream before `POST /jobs`.
+- Stream uses the shared latest-frame cache and does not hold the camera device lock.
+- Focus APIs and quad APIs can be called while stream is open.
+- Capture jobs also use frame snapshots from the same cache, so they can run while stream is open.
+- If camera is unavailable or no recent frame exists, APIs return explicit errors.
 
 ### Health
 
@@ -79,6 +79,9 @@ Important behavior:
 }
 ```
 
+Focus commands are queued to the camera owner loop and applied asynchronously.  
+The response reflects requested state; device state converges on the next camera-loop ticks.
+
 ### Focus adjust (+/-) only
 
 - `POST /session/focus-adjust`
@@ -95,6 +98,8 @@ Important behavior:
 Accepted `direction`:
 
 - `"+"`, `"-"`, `"in"`, `"out"`, `"near"`, `"far"`
+
+This command is also queued asynchronously to the camera owner loop.
 
 ### Set 4-point config only
 

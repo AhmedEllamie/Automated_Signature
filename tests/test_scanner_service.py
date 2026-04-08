@@ -6,11 +6,17 @@ import threading
 import time
 import types
 import unittest
+import queue
 
 # Provide a lightweight cv2 stub so package imports work in test environments
 # where OpenCV is unavailable. Service tests inject fake capture providers.
 if "cv2" not in sys.modules:
-    sys.modules["cv2"] = types.SimpleNamespace()
+    sys.modules["cv2"] = types.SimpleNamespace(
+        IMWRITE_JPEG_QUALITY=1,
+        INTER_AREA=1,
+        imencode=lambda _ext, _frame, _params=None: (True, types.SimpleNamespace(tobytes=lambda: b"jpg")),
+        resize=lambda frame, _size, interpolation=None: frame,
+    )
 
 from scanner.config import ScannerConfig
 from scanner_service.app import create_app
@@ -44,6 +50,46 @@ class ScannerServiceTests(unittest.TestCase):
             elapsed_ms: int
 
         self.FakeCaptureResult = FakeCaptureResult
+        self.focus_commands: queue.Queue[dict] = queue.Queue()
+
+        class FakeCameraManager:
+            def __init__(inner_self) -> None:
+                inner_self.frame = types.SimpleNamespace(shape=(1080, 1920, 3))
+                inner_self.status = {
+                    "frame_width": 1920,
+                    "frame_height": 1080,
+                    "frame_ts": time.time(),
+                    "camera_error": None,
+                }
+                inner_self.started = False
+
+            def start(inner_self) -> None:
+                inner_self.started = True
+
+            def stop(inner_self, timeout_seconds: float = 3.0) -> None:
+                _ = timeout_seconds
+                inner_self.started = False
+
+            def enqueue_focus_mode(inner_self, *, autofocus_enabled: bool, manual_focus_value: float | None) -> None:
+                self.focus_commands.put(
+                    {
+                        "kind": "focus_mode",
+                        "autofocus_enabled": autofocus_enabled,
+                        "manual_focus_value": manual_focus_value,
+                    }
+                )
+
+            def enqueue_focus_adjust(inner_self, *, delta: float) -> None:
+                self.focus_commands.put({"kind": "focus_adjust", "delta": delta})
+
+            def get_snapshot(inner_self):
+                return inner_self.frame, 1920, 1080, time.time()
+
+            def get_status(inner_self):
+                inner_self.status["frame_ts"] = time.time()
+                return dict(inner_self.status)
+
+        self.fake_camera_manager = FakeCameraManager()
 
         def fake_capture_executor(
             _cfg: ScannerConfig,
@@ -75,20 +121,12 @@ class ScannerServiceTests(unittest.TestCase):
                 with self.parallel_lock:
                     self.current_parallel_captures -= 1
 
-        def fake_frame_size_provider(
-            _cfg: ScannerConfig,
-            autofocus_enabled: bool,
-            manual_focus_value: float | None,
-        ) -> tuple[int, int]:
-            _ = autofocus_enabled, manual_focus_value
-            return (1920, 1080)
-
         self.worker = ScannerJobWorker(
             self.cfg,
             capture_executor=fake_capture_executor,
-            frame_size_provider=fake_frame_size_provider,
             quad_normalizer=lambda points: points,
             quad_validator=lambda _quad, _w, _h, _min_edge: (True, "ok"),
+            camera_manager=self.fake_camera_manager,
         )
         self.app = create_app(self.cfg, worker=self.worker, service_token="secret-token")
         self.client = self.app.test_client()
@@ -170,9 +208,9 @@ class ScannerServiceTests(unittest.TestCase):
                 readability=None,
                 elapsed_ms=1,
             ),
-            frame_size_provider=lambda *_args, **_kwargs: (1920, 1080),
             quad_normalizer=lambda points: points,
             quad_validator=strict_quad_validator,
+            camera_manager=self.fake_camera_manager,
         )
         self.app = create_app(self.cfg, worker=self.worker, service_token="secret-token")
         self.client = self.app.test_client()
@@ -216,9 +254,9 @@ class ScannerServiceTests(unittest.TestCase):
         self.worker = ScannerJobWorker(
             self.cfg,
             capture_executor=failing_capture_executor,
-            frame_size_provider=lambda *_args, **_kwargs: (1920, 1080),
             quad_normalizer=lambda points: points,
             quad_validator=lambda _quad, _w, _h, _min_edge: (True, "ok"),
+            camera_manager=self.fake_camera_manager,
         )
         self.app = create_app(self.cfg, worker=self.worker, service_token="secret-token")
         self.client = self.app.test_client()
@@ -278,6 +316,8 @@ class ScannerServiceTests(unittest.TestCase):
         payload = r.get_json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["manual_config"]["manual_focus_value"], 20.0)
+        cmd = self.focus_commands.get(timeout=1.0)
+        self.assertEqual(cmd["kind"], "focus_mode")
 
         r = self.client.post(
             "/session/focus-adjust",
@@ -288,6 +328,8 @@ class ScannerServiceTests(unittest.TestCase):
         payload = r.get_json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["manual_config"]["manual_focus_value"], 22.0)
+        cmd = self.focus_commands.get(timeout=1.0)
+        self.assertEqual(cmd["kind"], "focus_adjust")
 
         r = self.client.post(
             "/session/quad-points",
@@ -298,6 +340,29 @@ class ScannerServiceTests(unittest.TestCase):
         payload = r.get_json()
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["manual_config"]["valid"])
+
+    def test_stream_does_not_block_focus_and_quad(self) -> None:
+        stream_resp = self.client.get(
+            "/stream.mjpg?fps=5&width=640",
+            headers=_json_headers("secret-token"),
+            buffered=False,
+        )
+        self.assertEqual(stream_resp.status_code, 200)
+
+        r1 = self.client.post(
+            "/session/focus-mode",
+            json={"autofocus_enabled": False, "manual_focus_value": 30},
+            headers=_json_headers("secret-token"),
+        )
+        self.assertEqual(r1.status_code, 200)
+
+        r2 = self.client.post(
+            "/session/quad-points",
+            json={"quad_points": [[100, 120], [1700, 130], [1710, 980], [120, 990]]},
+            headers=_json_headers("secret-token"),
+        )
+        self.assertEqual(r2.status_code, 200)
+        stream_resp.close()
 
 
 if __name__ == "__main__":

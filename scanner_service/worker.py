@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import queue
 import threading
+import time
 import uuid
 from typing import Any, Callable
 
@@ -21,53 +22,31 @@ from .models import (
 
 
 CaptureExecutor = Callable[..., Any]
-FrameSizeProvider = Callable[[ScannerConfig, bool, float | None], tuple[int, int]]
 QuadNormalizer = Callable[[list[object]], Any]
 QuadValidator = Callable[[Any, int, int, float], tuple[bool, str]]
+FrameProcessor = Callable[..., Any]
 
 
-class ScannerJobWorker:
-    def __init__(
-        self,
-        cfg: ScannerConfig,
-        *,
-        capture_executor: CaptureExecutor | None = None,
-        frame_size_provider: FrameSizeProvider | None = None,
-        quad_normalizer: QuadNormalizer | None = None,
-        quad_validator: QuadValidator | None = None,
-    ) -> None:
+class CameraManager:
+    def __init__(self, cfg: ScannerConfig) -> None:
+        from scanner.calibration import FisheyeUndistorter
+        from scanner.camera import apply_camera_settings, open_video_capture
+
         self._cfg = cfg
-        if capture_executor is None or frame_size_provider is None or quad_normalizer is None or quad_validator is None:
-            from scanner.capture import (
-                capture_rectified_manual_png,
-                normalize_quad_points,
-                peek_frame_size,
-                validate_quad_within_frame,
-            )
+        self._open_video_capture = open_video_capture
+        self._apply_camera_settings = apply_camera_settings
+        self._undistorter = FisheyeUndistorter(cfg)
 
-            self._capture_executor = capture_executor or capture_rectified_manual_png
-            self._frame_size_provider = frame_size_provider or peek_frame_size
-            self._quad_normalizer = quad_normalizer or normalize_quad_points
-            self._quad_validator = quad_validator or validate_quad_within_frame
-        else:
-            self._capture_executor = capture_executor
-            self._frame_size_provider = frame_size_provider
-            self._quad_normalizer = quad_normalizer
-            self._quad_validator = quad_validator
+        self._frame_lock = threading.Lock()
+        self._latest_frame: Any = None
+        self._frame_width = 0
+        self._frame_height = 0
+        self._frame_ts = 0.0
+        self._camera_error: str | None = "camera_not_started"
 
-        self._jobs: dict[str, JobRecord] = {}
-        self._jobs_lock = threading.Lock()
-        self._manual_lock = threading.Lock()
-        self._camera_lock = threading.Lock()
-        self._manual_config = ManualConfig()
-
-        self._queue: queue.Queue[JobRequest] = queue.Queue()
+        self._command_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self._stop_event = threading.Event()
-        self._thread = threading.Thread(
-            target=self._run,
-            name="scanner-capture-worker",
-            daemon=True,
-        )
+        self._thread = threading.Thread(target=self._run, name="scanner-camera-manager", daemon=True)
 
     def start(self) -> None:
         if not self._thread.is_alive():
@@ -76,6 +55,202 @@ class ScannerJobWorker:
     def stop(self, timeout_seconds: float = 3.0) -> None:
         self._stop_event.set()
         self._thread.join(timeout=max(0.1, timeout_seconds))
+
+    def enqueue_focus_mode(self, *, autofocus_enabled: bool, manual_focus_value: float | None) -> None:
+        self._command_queue.put(
+            {
+                "kind": "focus_mode",
+                "autofocus_enabled": bool(autofocus_enabled),
+                "manual_focus_value": None if manual_focus_value is None else float(manual_focus_value),
+            }
+        )
+
+    def enqueue_focus_adjust(self, *, delta: float) -> None:
+        self._command_queue.put({"kind": "focus_adjust", "delta": float(delta)})
+
+    def get_snapshot(self) -> tuple[Any, int, int, float]:
+        with self._frame_lock:
+            if self._latest_frame is None:
+                return None, self._frame_width, self._frame_height, self._frame_ts
+            return self._latest_frame.copy(), self._frame_width, self._frame_height, self._frame_ts
+
+    def get_status(self) -> dict[str, Any]:
+        with self._frame_lock:
+            return {
+                "frame_width": self._frame_width,
+                "frame_height": self._frame_height,
+                "frame_ts": self._frame_ts,
+                "camera_error": self._camera_error,
+            }
+
+    def _run(self) -> None:
+        import cv2
+
+        backoff = 0.2
+        cap = None
+        focus_is_auto = self._cfg.camera_autofocus_enabled
+        manual_focus_value = self._cfg.camera_manual_focus if self._cfg.camera_manual_focus >= 0 else None
+
+        while not self._stop_event.is_set():
+            try:
+                if cap is None or not cap.isOpened():
+                    cap = self._open_video_capture(self._cfg)
+                    if cap is None or not cap.isOpened():
+                        self._set_camera_error("camera_unavailable")
+                        time.sleep(backoff)
+                        backoff = min(2.0, backoff * 1.5)
+                        continue
+                    self._apply_camera_settings(cap, self._cfg)
+                    self._set_camera_error(None)
+                    backoff = 0.2
+
+                self._drain_commands(cap, manual_focus_value)
+                focus_is_auto, manual_focus_value = self._focus_state_from_camera(cap, focus_is_auto, manual_focus_value)
+
+                ok, frame = cap.read()
+                if not ok or frame is None or frame.size == 0:
+                    self._set_camera_error("camera_read_failed")
+                    cap.release()
+                    cap = None
+                    continue
+
+                frame = self._undistorter.apply(frame)
+                h, w = frame.shape[:2]
+                with self._frame_lock:
+                    self._latest_frame = frame
+                    self._frame_width = int(w)
+                    self._frame_height = int(h)
+                    self._frame_ts = time.time()
+                    self._camera_error = None
+            except Exception as exc:
+                self._set_camera_error(f"camera_manager_error: {exc}")
+                if cap is not None and cap.isOpened():
+                    cap.release()
+                cap = None
+                time.sleep(0.3)
+
+        if cap is not None and cap.isOpened():
+            cap.release()
+
+    def _drain_commands(self, cap: Any, manual_focus_value: float | None) -> None:
+        import cv2
+
+        autofocus_prop = getattr(cv2, "CAP_PROP_AUTOFOCUS", None)
+        focus_prop = getattr(cv2, "CAP_PROP_FOCUS", None)
+        while True:
+            try:
+                cmd = self._command_queue.get_nowait()
+            except queue.Empty:
+                break
+            kind = cmd.get("kind")
+            if kind == "focus_mode":
+                target_auto = bool(cmd.get("autofocus_enabled"))
+                target_manual = cmd.get("manual_focus_value", manual_focus_value)
+                if autofocus_prop is not None:
+                    try:
+                        cap.set(autofocus_prop, 1.0 if target_auto else 0.0)
+                    except Exception:
+                        pass
+                if not target_auto and target_manual is not None and focus_prop is not None:
+                    try:
+                        cap.set(focus_prop, float(target_manual))
+                    except Exception:
+                        pass
+            elif kind == "focus_adjust":
+                delta = float(cmd.get("delta", 0.0))
+                if autofocus_prop is not None:
+                    try:
+                        cap.set(autofocus_prop, 0.0)
+                    except Exception:
+                        pass
+                if focus_prop is not None:
+                    current = manual_focus_value if manual_focus_value is not None else 0.0
+                    target = max(0.0, float(current) + delta)
+                    try:
+                        cap.set(focus_prop, target)
+                    except Exception:
+                        pass
+
+    def _focus_state_from_camera(self, cap: Any, focus_is_auto: bool, manual_focus_value: float | None) -> tuple[bool, float | None]:
+        import cv2
+
+        autofocus_prop = getattr(cv2, "CAP_PROP_AUTOFOCUS", None)
+        focus_prop = getattr(cv2, "CAP_PROP_FOCUS", None)
+        if autofocus_prop is not None:
+            try:
+                af = cap.get(autofocus_prop)
+                if af >= 0:
+                    focus_is_auto = af >= 0.5
+            except Exception:
+                pass
+        if focus_prop is not None:
+            try:
+                f = cap.get(focus_prop)
+                if f >= 0:
+                    manual_focus_value = float(f)
+            except Exception:
+                pass
+        return focus_is_auto, manual_focus_value
+
+    def _set_camera_error(self, message: str | None) -> None:
+        with self._frame_lock:
+            self._camera_error = message
+
+
+class ScannerJobWorker:
+    def __init__(
+        self,
+        cfg: ScannerConfig,
+        *,
+        capture_executor: CaptureExecutor | None = None,
+        quad_normalizer: QuadNormalizer | None = None,
+        quad_validator: QuadValidator | None = None,
+        frame_processor: FrameProcessor | None = None,
+        camera_manager: CameraManager | None = None,
+    ) -> None:
+        self._cfg = cfg
+        if capture_executor is None or quad_normalizer is None or quad_validator is None or frame_processor is None:
+            from scanner.capture import (
+                normalize_quad_points,
+                process_rectified_manual_frame,
+                validate_quad_within_frame,
+            )
+
+            self._capture_executor = capture_executor
+            self._frame_processor = frame_processor or process_rectified_manual_frame
+            self._quad_normalizer = quad_normalizer or normalize_quad_points
+            self._quad_validator = quad_validator or validate_quad_within_frame
+        else:
+            self._capture_executor = capture_executor
+            self._frame_processor = frame_processor
+            self._quad_normalizer = quad_normalizer
+            self._quad_validator = quad_validator
+
+        self._jobs: dict[str, JobRecord] = {}
+        self._jobs_lock = threading.Lock()
+        self._manual_lock = threading.Lock()
+        self._manual_config = ManualConfig()
+        self._camera = camera_manager or CameraManager(cfg)
+
+        self._queue: queue.Queue[JobRequest] = queue.Queue()
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="scanner-capture-worker", daemon=True)
+
+    def start(self) -> None:
+        self._camera.start()
+        if not self._thread.is_alive():
+            self._thread.start()
+
+    def stop(self, timeout_seconds: float = 3.0) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=max(0.1, timeout_seconds))
+        self._camera.stop(timeout_seconds=timeout_seconds)
+
+    def get_camera_status(self) -> dict[str, Any]:
+        return self._camera.get_status()
+
+    def get_latest_frame_snapshot(self) -> tuple[Any, int, int, float]:
+        return self._camera.get_snapshot()
 
     def get_manual_config(self) -> dict[str, Any]:
         with self._manual_lock:
@@ -90,7 +265,6 @@ class ScannerJobWorker:
             current.quad_points = [list(p) for p in self._manual_config.quad_points]
 
         autofocus_enabled = bool(payload.get("autofocus_enabled", current.autofocus_enabled))
-
         if "manual_focus_value" in payload:
             raw_focus = payload.get("manual_focus_value")
             manual_focus_value = None if raw_focus is None else float(raw_focus)
@@ -101,13 +275,13 @@ class ScannerJobWorker:
         if not raw_points:
             raise ValueError("quad_points is required and must contain 4 points")
 
+        self._camera.enqueue_focus_mode(
+            autofocus_enabled=autofocus_enabled,
+            manual_focus_value=manual_focus_value,
+        )
+
         quad = self._quad_normalizer(raw_points)
-        with self._camera_lock:
-            frame_width, frame_height = self._frame_size_provider(
-                self._cfg,
-                autofocus_enabled,
-                manual_focus_value,
-            )
+        frame_width, frame_height = self._current_frame_size()
         valid, reason = self._quad_validator(quad, frame_width, frame_height, self._cfg.min_edge_px)
         if not valid:
             raise ValueError(reason)
@@ -126,23 +300,17 @@ class ScannerJobWorker:
             self._manual_config = updated
             return self._manual_config.to_dict()
 
-    def set_focus_mode(
-        self,
-        *,
-        autofocus_enabled: bool,
-        manual_focus_value: float | None = None,
-    ) -> dict[str, Any]:
+    def set_focus_mode(self, *, autofocus_enabled: bool, manual_focus_value: float | None = None) -> dict[str, Any]:
         with self._manual_lock:
             current = replace(self._manual_config)
             current.quad_points = [list(p) for p in self._manual_config.quad_points]
 
         new_manual_focus = current.manual_focus_value if manual_focus_value is None else float(manual_focus_value)
-        with self._camera_lock:
-            frame_width, frame_height = self._frame_size_provider(
-                self._cfg,
-                bool(autofocus_enabled),
-                new_manual_focus,
-            )
+        self._camera.enqueue_focus_mode(
+            autofocus_enabled=bool(autofocus_enabled),
+            manual_focus_value=new_manual_focus,
+        )
+        frame_width, frame_height = self._current_frame_size()
 
         valid = bool(current.quad_points)
         validation_message = "quad_points are not set yet"
@@ -182,6 +350,7 @@ class ScannerJobWorker:
         base = current.manual_focus_value if current.manual_focus_value is not None else 0.0
         delta = -s if d in {"-", "in", "near"} else s
         new_focus = max(0.0, float(base) + delta)
+        self._camera.enqueue_focus_adjust(delta=delta)
         return self.set_focus_mode(autofocus_enabled=False, manual_focus_value=new_focus)
 
     def set_quad_points(self, *, quad_points: list[object]) -> dict[str, Any]:
@@ -190,12 +359,7 @@ class ScannerJobWorker:
             current.quad_points = [list(p) for p in self._manual_config.quad_points]
 
         quad = self._quad_normalizer(quad_points)
-        with self._camera_lock:
-            frame_width, frame_height = self._frame_size_provider(
-                self._cfg,
-                current.autofocus_enabled,
-                current.manual_focus_value,
-            )
+        frame_width, frame_height = self._current_frame_size()
         valid, reason = self._quad_validator(quad, frame_width, frame_height, self._cfg.min_edge_px)
         if not valid:
             raise ValueError(reason)
@@ -241,12 +405,7 @@ class ScannerJobWorker:
             readability_required=readability_required,
             timeout_seconds=timeout_seconds,
         )
-        rec = JobRecord(
-            job_id=job_id,
-            mode=mode,
-            status=STATUS_QUEUED,
-            created_at=req.created_at,
-        )
+        rec = JobRecord(job_id=job_id, mode=mode, status=STATUS_QUEUED, created_at=req.created_at)
         with self._jobs_lock:
             self._jobs[job_id] = rec
         self._queue.put(req)
@@ -255,9 +414,7 @@ class ScannerJobWorker:
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         with self._jobs_lock:
             rec = self._jobs.get(job_id)
-            if rec is None:
-                return None
-            return rec.to_public_dict()
+            return None if rec is None else rec.to_public_dict()
 
     def get_job_image(self, job_id: str) -> tuple[str, bytes | None]:
         with self._jobs_lock:
@@ -268,13 +425,6 @@ class ScannerJobWorker:
                 return rec.status, None
             return rec.status, rec.image_bytes
 
-    def acquire_camera(self, timeout_seconds: float = 1.0) -> bool:
-        return self._camera_lock.acquire(timeout=max(0.0, float(timeout_seconds)))
-
-    def release_camera(self) -> None:
-        if self._camera_lock.locked():
-            self._camera_lock.release()
-
     def _validate_manual_config_against_camera(self) -> None:
         with self._manual_lock:
             cfg = replace(self._manual_config)
@@ -284,12 +434,7 @@ class ScannerJobWorker:
             raise ValueError("Manual config is not set; call POST /session/manual-config first")
 
         quad = self._quad_normalizer(cfg.quad_points)
-        with self._camera_lock:
-            frame_width, frame_height = self._frame_size_provider(
-                self._cfg,
-                cfg.autofocus_enabled,
-                cfg.manual_focus_value,
-            )
+        frame_width, frame_height = self._current_frame_size()
         valid, reason = self._quad_validator(quad, frame_width, frame_height, self._cfg.min_edge_px)
         if not valid:
             raise ValueError(reason)
@@ -317,7 +462,7 @@ class ScannerJobWorker:
                 if not cfg.quad_points:
                     raise RuntimeError("Manual config is missing")
 
-                with self._camera_lock:
+                if self._capture_executor is not None:
                     result = self._capture_executor(
                         self._cfg,
                         cfg.quad_points,
@@ -326,6 +471,8 @@ class ScannerJobWorker:
                         readability_required=req.readability_required,
                         timeout_seconds=req.timeout_seconds,
                     )
+                else:
+                    result = self._process_job_from_snapshot(req, cfg)
 
                 if result.ok and result.png_bytes is not None:
                     self._mark_succeeded(req.job_id, result)
@@ -340,6 +487,23 @@ class ScannerJobWorker:
                 self._mark_failed(req.job_id, error="worker_error", detail=str(exc), metadata={})
             finally:
                 self._queue.task_done()
+
+    def _process_job_from_snapshot(self, req: JobRequest, cfg: ManualConfig) -> Any:
+        frame, width, height, frame_ts = self._camera.get_snapshot()
+        if frame is None:
+            raise RuntimeError("No camera frame available")
+        if (time.time() - frame_ts) > 2.5:
+            raise RuntimeError("Camera frame is stale")
+        result = self._frame_processor(
+            frame,
+            self._cfg,
+            cfg.quad_points,
+            readability_required=req.readability_required,
+            timeout_seconds=req.timeout_seconds,
+        )
+        result.frame_width = width
+        result.frame_height = height
+        return result
 
     def _mark_running(self, job_id: str) -> None:
         with self._jobs_lock:
@@ -359,14 +523,7 @@ class ScannerJobWorker:
             rec.detail = result.message
             rec.metadata = self._result_metadata(result)
 
-    def _mark_failed(
-        self,
-        job_id: str,
-        *,
-        error: str,
-        detail: str,
-        metadata: dict[str, Any],
-    ) -> None:
+    def _mark_failed(self, job_id: str, *, error: str, detail: str, metadata: dict[str, Any]) -> None:
         with self._jobs_lock:
             rec = self._jobs[job_id]
             rec.status = STATUS_FAILED
@@ -403,4 +560,13 @@ class ScannerJobWorker:
                 raise ValueError("Each quad point must contain x and y values")
             out.append([float(point[0]), float(point[1])])
         return out
+
+    def _current_frame_size(self) -> tuple[int, int]:
+        status = self._camera.get_status()
+        w = int(status.get("frame_width") or 0)
+        h = int(status.get("frame_height") or 0)
+        if w <= 0 or h <= 0:
+            err = status.get("camera_error") or "camera_unavailable"
+            raise RuntimeError(f"Camera frame size unavailable: {err}")
+        return w, h
 

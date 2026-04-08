@@ -260,3 +260,103 @@ def capture_rectified_manual_png(
             elapsed_ms=int((time.time() - started) * 1000),
         )
 
+
+def process_rectified_manual_frame(
+    frame: np.ndarray,
+    cfg: ScannerConfig,
+    quad_points: Sequence[object],
+    *,
+    readability_required: bool | None = None,
+    timeout_seconds: float = 15.0,
+) -> ManualCaptureResult:
+    started = time.time()
+    if frame is None or frame.size == 0:
+        return ManualCaptureResult(
+            ok=False,
+            status="frame_unavailable",
+            message="No frame provided",
+            png_bytes=None,
+            frame_width=0,
+            frame_height=0,
+            readability=None,
+            elapsed_ms=0,
+        )
+
+    try:
+        work_frame = FisheyeUndistorter(cfg).apply(frame)
+        frame_h, frame_w = work_frame.shape[:2]
+        quad = normalize_quad_points(quad_points)
+        valid, reason = validate_quad_within_frame(quad, frame_w, frame_h, cfg.min_edge_px)
+        if not valid:
+            return ManualCaptureResult(
+                ok=False,
+                status="invalid_quad",
+                message=reason,
+                png_bytes=None,
+                frame_width=frame_w,
+                frame_height=frame_h,
+                readability=None,
+                elapsed_ms=int((time.time() - started) * 1000),
+            )
+
+        warp_short = compute_warp_short_side(frame_w, frame_h, cfg)
+        dst_size = a4_target_size(warp_short, cfg.a4_ratio)
+        warped = warp_document(work_frame, quad, dst_size, cfg=cfg)
+        result = enhance_for_scan(warped, cfg=cfg) if cfg.apply_scan_enhancement else warped
+
+        readability_result: ReadabilityResult | None = None
+        require_readable = cfg.require_readable_to_save if readability_required is None else readability_required
+        if cfg.enable_readability_check:
+            readability_result = verify_readability(
+                result,
+                min_confidence=cfg.min_readability_confidence,
+                tesseract_cmd=cfg.tesseract_cmd,
+                mode=cfg.readability_mode,
+            )
+            if require_readable and not readability_result.readable:
+                return ManualCaptureResult(
+                    ok=False,
+                    status="unreadable",
+                    message=readability_result.message,
+                    png_bytes=None,
+                    frame_width=frame_w,
+                    frame_height=frame_h,
+                    readability=readability_result,
+                    elapsed_ms=int((time.time() - started) * 1000),
+                )
+
+        png_bytes = encode_png_bytes(result)
+        elapsed_ms = int((time.time() - started) * 1000)
+        if timeout_seconds > 0 and elapsed_ms > int(timeout_seconds * 1000):
+            return ManualCaptureResult(
+                ok=False,
+                status="timeout",
+                message=f"Capture exceeded timeout ({timeout_seconds:.1f}s)",
+                png_bytes=None,
+                frame_width=frame_w,
+                frame_height=frame_h,
+                readability=readability_result,
+                elapsed_ms=elapsed_ms,
+            )
+        return ManualCaptureResult(
+            ok=True,
+            status="succeeded",
+            message="Capture completed",
+            png_bytes=png_bytes,
+            frame_width=frame_w,
+            frame_height=frame_h,
+            readability=readability_result,
+            elapsed_ms=elapsed_ms,
+        )
+    except Exception as exc:
+        return ManualCaptureResult(
+            ok=False,
+            status="processing_failed",
+            message=str(exc),
+            png_bytes=None,
+            frame_width=0,
+            frame_height=0,
+            readability=None,
+            elapsed_ms=int((time.time() - started) * 1000),
+        )
+
