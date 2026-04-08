@@ -636,7 +636,7 @@ def run_webcam(cfg: ScannerConfig) -> int:
             else:
                 manual_status = "Manual step: OFF"
             keys_status = (
-                "Keys: [a] auto [m] manual focus [n] points [p] focus [s] save [r] reset "
+                "Keys: [a] auto [m] manual focus [n] points [p] focus [s] save/capture [r] reset "
                 "[f] AF on/off [+/- or 1/2] focus out/in [q] quit"
             )
             put_status(
@@ -677,7 +677,7 @@ def run_webcam(cfg: ScannerConfig) -> int:
                 manual_step = "FOCUS"
                 prev_quad = None
                 stable_frames = 0
-                print("Manual mode: FOCUS step. Adjust lens with [+/-], then press [n] for 4-point selection.")
+                print("Manual mode: FOCUS step. Adjust lens with [+/-], press [s] to capture photo, or [n] for 4-point selection.")
             elif key in (ord("n"), ord("N")):
                 if mode == "MANUAL":
                     if manual_step != "POINTS":
@@ -701,7 +701,12 @@ def run_webcam(cfg: ScannerConfig) -> int:
                     stable_frames = 0
                     print("Capture lock cleared manually. Ready for next photo.")
             elif key in (ord("s"), ord("S")):
-                if active_quad is None:
+                if mode == "MANUAL" and manual_step == "FOCUS":
+                    capture_image = frame.copy()
+                    persist_capture(capture_image, cfg, readability_result=None)
+                    save_count += 1
+                    print("Manual capture: saved current camera photo.")
+                elif active_quad is None:
                     if mode == "MANUAL":
                         if manual_step != "POINTS":
                             print("Save skipped: manual mode is in FOCUS step. Press [n], set 4 corners, then save.")

@@ -52,7 +52,7 @@ class ScannerConfig:
 
     smoothing_alpha: float = 0.24
     confidence_threshold: float = 0.62
-    start_mode: str = "AUTO"  # AUTO starts live flattening immediately
+    start_mode: str = "MANUAL"  # Start in manual mode by default
 
     save_dir: str = "output"
     # Lens distortion correction (fisheye model) applied before document detection.
@@ -80,8 +80,8 @@ class ScannerConfig:
     require_readable_to_save: bool = True
 
     # Optional API upload config
-    upload_enabled: bool = False
-    upload_url: str = os.getenv("SCAN_UPLOAD_URL", "")
+    upload_enabled: bool = True
+    upload_url: str = os.getenv("SCAN_UPLOAD_URL", "http://127.0.0.1:5001/api/capture")
     upload_token: str = os.getenv("SCAN_UPLOAD_TOKEN", "")
     upload_timeout_seconds: int = 15
     upload_field_name: str = "file"
@@ -94,7 +94,7 @@ class ScannerConfig:
     save_on_upload_fail: bool = True
 
     # Fully automatic capture (no keyboard save required)
-    auto_capture_enabled: bool = True
+    auto_capture_enabled: bool = False
     auto_capture_stable_frames: int = 8
     # True = one readable capture, then lock until reset (API or manual).
     single_capture_until_api_reset: bool = True
