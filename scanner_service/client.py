@@ -122,6 +122,44 @@ class ScannerServiceClient:
         resp.raise_for_status()
         return resp.json()
 
+    def start_capture(
+        self,
+        *,
+        readability_required: bool | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"mode": "manual"}
+        if readability_required is not None:
+            payload["readability_required"] = bool(readability_required)
+        if timeout_seconds is not None:
+            payload["timeout_seconds"] = float(timeout_seconds)
+        resp = requests.post(
+            f"{self.base_url}/capture/start",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json=payload,
+            timeout=self.timeout_seconds,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_capture_status(self, capture_id: str) -> dict[str, Any]:
+        resp = requests.get(
+            f"{self.base_url}/capture/{capture_id}/status",
+            headers=self._headers(),
+            timeout=self.timeout_seconds,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def download_capture_result(self, capture_id: str) -> bytes:
+        resp = requests.get(
+            f"{self.base_url}/capture/{capture_id}/result",
+            headers=self._headers(),
+            timeout=self.timeout_seconds,
+        )
+        resp.raise_for_status()
+        return resp.content
+
     def get_job(self, job_id: str) -> dict[str, Any]:
         resp = requests.get(
             f"{self.base_url}/jobs/{job_id}",

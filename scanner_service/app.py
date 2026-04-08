@@ -138,6 +138,46 @@ def create_app(
         except Exception as exc:
             return jsonify({"ok": False, "error": f"unexpected_error: {exc}"}), 500
 
+    @app.post("/capture/start")
+    def capture_start() -> Response:
+        payload = request.get_json(silent=True) or {}
+        payload.setdefault("mode", "manual")
+        try:
+            rec = worker.create_job(payload)
+            return jsonify({"ok": True, "capture": rec}), 202
+        except ValueError as exc:
+            msg = str(exc)
+            status_code = 409 if "Manual config is not set" in msg else 400
+            return jsonify({"ok": False, "error": msg}), status_code
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 503
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"unexpected_error: {exc}"}), 500
+
+    @app.get("/capture/<capture_id>/status")
+    def capture_status(capture_id: str) -> Response:
+        rec = worker.get_job(capture_id)
+        if rec is None:
+            return jsonify({"ok": False, "error": "capture_not_found"}), 404
+        return jsonify({"ok": True, "capture": rec})
+
+    @app.get("/capture/<capture_id>/result")
+    def capture_result(capture_id: str) -> Response:
+        status, img = worker.get_job_image(capture_id)
+        if status == "missing":
+            return jsonify({"ok": False, "error": "capture_not_found"}), 404
+        if status in (STATUS_QUEUED, STATUS_RUNNING):
+            return jsonify({"ok": False, "error": "capture_not_ready", "status": status}), 409
+        if status == STATUS_FAILED:
+            rec = worker.get_job(capture_id) or {}
+            payload: dict[str, Any] = {"ok": False, "error": "capture_failed", "status": status}
+            if rec:
+                payload["capture"] = rec
+            return jsonify(payload), 409
+        if status == STATUS_SUCCEEDED and img is not None:
+            return Response(img, mimetype="image/png")
+        return jsonify({"ok": False, "error": "capture_result_missing", "status": status}), 500
+
     @app.get("/jobs/<job_id>")
     def get_job(job_id: str) -> Response:
         rec = worker.get_job(job_id)

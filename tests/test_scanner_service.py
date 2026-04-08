@@ -364,6 +364,36 @@ class ScannerServiceTests(unittest.TestCase):
         self.assertEqual(r2.status_code, 200)
         stream_resp.close()
 
+    def test_capture_wrapper_endpoints(self) -> None:
+        self.client.post(
+            "/session/manual-config",
+            json={
+                "autofocus_enabled": False,
+                "manual_focus_value": 35,
+                "quad_points": [[100, 120], [1700, 130], [1710, 980], [120, 990]],
+            },
+            headers=_json_headers("secret-token"),
+        )
+
+        start_resp = self.client.post(
+            "/capture/start",
+            json={"readability_required": True, "timeout_seconds": 10},
+            headers=_json_headers("secret-token"),
+        )
+        self.assertEqual(start_resp.status_code, 202)
+        capture_id = start_resp.get_json()["capture"]["job_id"]
+
+        status = self._wait_for_job_terminal(capture_id)
+        self.assertEqual(status["status"], "succeeded")
+
+        status_resp = self.client.get(f"/capture/{capture_id}/status", headers=_json_headers("secret-token"))
+        self.assertEqual(status_resp.status_code, 200)
+        self.assertTrue(status_resp.get_json()["ok"])
+
+        result_resp = self.client.get(f"/capture/{capture_id}/result", headers=_json_headers("secret-token"))
+        self.assertEqual(result_resp.status_code, 200)
+        self.assertEqual(result_resp.mimetype, "image/png")
+
 
 if __name__ == "__main__":
     unittest.main()
