@@ -233,10 +233,38 @@ function startCapturePolling(maxAttempts = 20, intervalMs = 2000) {
 
 async function requestCapture() {
   try {
-    const payload = buildCapturePayload();
-    const data = await apiPostJson("/api/scanner/capture-manual", payload);
+    const startData = await apiPostJson("/api/scanner/capture/start", {
+      readability_required: true,
+      timeout_seconds: 15,
+    });
+    const captureId = String(startData.captureId || startData.capture?.capture_id || startData.capture?.job_id || "").trim();
+    if (!captureId) {
+      throw new Error("Capture id was not returned.");
+    }
+
+    const maxAttempts = 50;
+    let latestStatus = "";
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const statusData = await apiGet(`/api/scanner/capture/${encodeURIComponent(captureId)}/status`);
+      latestStatus = String(statusData.capture?.status || "").toLowerCase();
+      if (latestStatus === "succeeded") {
+        break;
+      }
+      if (latestStatus === "failed") {
+        const capture = statusData.capture || {};
+        throw new Error(`Capture failed: ${capture.error || "unknown_error"} - ${capture.detail || "no detail"}`);
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, 400);
+      });
+    }
+    if (latestStatus !== "succeeded") {
+      throw new Error("Capture status polling timed out.");
+    }
+
+    const imageUrl = `/api/scanner/capture/${encodeURIComponent(captureId)}/result`;
     const imageEl = document.getElementById("capturePreview");
-    imageEl.src = `${data.imageUrl}?t=${Date.now()}`;
+    imageEl.src = `${imageUrl}?t=${Date.now()}`;
     imageEl.style.display = "block";
     appendLog("Capture completed and rectified image loaded.");
   } catch (error) {
