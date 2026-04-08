@@ -210,6 +210,12 @@ Run on a saved image (single-shot validation):
 python main.py --image "C:\path\to\your_photo.jpg"
 ```
 
+Disable local file saving (rectified image is processed/uploaded but not written to `output/`):
+
+```bash
+python main.py --save-local false
+```
+
 Disable camera autofocus (optional) and set manual focus value:
 
 ```bash

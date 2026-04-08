@@ -193,6 +193,12 @@ This command is also queued asynchronously to the camera owner loop.
 }
 ```
 
+Local save behavior for this API:
+
+- Controlled by `ScannerConfig.save_rectified_locally`.
+- `True`: successful captures are saved to `ScannerConfig.save_dir` and still available via `/capture/{id}/result`.
+- `False`: no local file is written; image is available only through API response endpoints.
+
 - Response (`202`):
 
 ```json

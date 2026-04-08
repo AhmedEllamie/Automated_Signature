@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
+import os
 import queue
 import threading
 import time
@@ -514,6 +516,11 @@ class ScannerJobWorker:
             rec.detail = None
 
     def _mark_succeeded(self, job_id: str, result: Any) -> None:
+        metadata = self._result_metadata(result)
+        saved_path = self._save_result_locally_if_enabled(result.png_bytes)
+        if saved_path:
+            metadata["saved_path"] = saved_path
+
         with self._jobs_lock:
             rec = self._jobs[job_id]
             rec.status = STATUS_SUCCEEDED
@@ -521,7 +528,7 @@ class ScannerJobWorker:
             rec.image_bytes = result.png_bytes
             rec.error = None
             rec.detail = result.message
-            rec.metadata = self._result_metadata(result)
+            rec.metadata = metadata
 
     def _mark_failed(self, job_id: str, *, error: str, detail: str, metadata: dict[str, Any]) -> None:
         with self._jobs_lock:
@@ -548,6 +555,18 @@ class ScannerJobWorker:
                 "message": result.readability.message,
             }
         return metadata
+
+    def _save_result_locally_if_enabled(self, png_bytes: bytes | None) -> str | None:
+        if not self._cfg.save_rectified_locally:
+            return None
+        if not png_bytes:
+            return None
+        os.makedirs(self._cfg.save_dir, exist_ok=True)
+        name = datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".png"
+        path = os.path.join(self._cfg.save_dir, name)
+        with open(path, "wb") as f:
+            f.write(png_bytes)
+        return path
 
     @staticmethod
     def _quad_to_list(quad: Any) -> list[list[float]]:

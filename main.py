@@ -84,6 +84,11 @@ def persist_capture(
     cfg: ScannerConfig,
     readability_result: ReadabilityResult | None = None,
 ) -> None:
+    if not cfg.save_rectified_locally:
+        run_post_processors(image, image_path="", cfg=cfg, readability_result=readability_result)
+        print("Local save disabled by config; rectified image was not written to disk.")
+        return
+
     # Memory mode keeps disk clean; local fallback is handled in run_post_processors on upload failure.
     if cfg.upload_enabled and cfg.upload_url and cfg.upload_from_memory:
         run_post_processors(image, image_path="", cfg=cfg, readability_result=readability_result)
@@ -275,6 +280,13 @@ def parse_args() -> argparse.Namespace:
         help="Disable OpenCV windows (useful on headless Ubuntu/Orange Pi).",
     )
     parser.add_argument(
+        "--save-local",
+        type=str,
+        choices=("true", "false"),
+        default="",
+        help="Enable/disable saving rectified images to local disk.",
+    )
+    parser.add_argument(
         "--capture-reset-url",
         type=str,
         default="",
@@ -339,8 +351,11 @@ def run_post_processors(
                 print(f"Upload response: {u.response_preview}")
 
             if not u.ok and cfg.save_on_upload_fail:
-                saved_path = save_scan(image, cfg.save_dir)
-                print(f"Upload failed; kept local copy: {saved_path}")
+                if cfg.save_rectified_locally:
+                    saved_path = save_scan(image, cfg.save_dir)
+                    print(f"Upload failed; kept local copy: {saved_path}")
+                else:
+                    print("Upload failed; local fallback copy skipped because save_local is disabled.")
             return
 
         # Disk upload: upload the saved file, then optionally delete it.
@@ -747,6 +762,8 @@ def main() -> int:
         cfg.camera_manual_focus = args.manual_focus
     if args.camera is not None:
         cfg.camera_index = args.camera
+    if args.save_local:
+        cfg.save_rectified_locally = args.save_local == "true"
     if args.capture_reset_url:
         cfg.capture_reset_url = args.capture_reset_url
         cfg.single_capture_until_api_reset = True
