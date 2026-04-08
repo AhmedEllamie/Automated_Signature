@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automated Signature - Configuration</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="topbar">
+      <h1>Automated Signature</h1>
+      <a class="nav-link" href="/">Main</a>
+    </header>
+
+    <section class="card">
+      <h2>Printer Connection</h2>
+      <div class="grid">
+        <label>COM/TTY Port
+          <input id="comPort" type="text" placeholder="COM5 or /dev/ttyUSB0">
+        </label>
+        <label>Baud Rate
+          <input id="baudRate" type="number" value="250000">
+        </label>
+      </div>
+      <div class="secondary-row">
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn">Disconnect</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Printer Settings</h2>
+      <div class="grid">
+        <label>Width
+          <input id="width" type="text" value="210mm">
+        </label>
+        <label>Height
+          <input id="height" type="text" value="297mm">
+        </label>
+        <label>X Position
+          <input id="xPosition" type="text" value="50mm">
+        </label>
+        <label>Y Position
+          <input id="yPosition" type="text" value="50mm">
+        </label>
+        <label>Scale
+          <input id="scale" type="number" value="1" min="1">
+        </label>
+        <label>Rotation
+          <input id="rotation" type="number" value="0" min="0" max="360">
+        </label>
+      </div>
+      <div class="grid">
+        <label class="checkbox">
+          <input id="invertX" type="checkbox">
+          Invert X
+        </label>
+        <label class="checkbox">
+          <input id="invertY" type="checkbox" checked>
+          Invert Y
+        </label>
+        <label>Change Pen Mode
+          <select id="penMode">
+            <option value="start">start</option>
+            <option value="finish">finish</option>
+          </select>
+        </label>
+      </div>
+      <div class="secondary-row">
+        <button id="changePenBtn">ChangePen</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Configuration Message</h2>
+      <p id="configMessage" class="muted">Settings are saved automatically in this browser.</p>
+    </section>
+  </main>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/configuration.js"></script>
+</body>
+</html>

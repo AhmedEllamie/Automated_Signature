@@ -5,100 +5,107 @@ const state = {
 
 function appendLog(message, isError = false) {
   const logBox = document.getElementById("logBox");
+  if (!logBox) return;
   const line = document.createElement("div");
   line.className = `log-line${isError ? " error" : ""}`;
   line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
   logBox.prepend(line);
 }
 
-async function parseApiResponse(response) {
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    throw new Error(`Invalid API response (${response.status})`);
-  }
-
-  if (!response.ok || payload.success === false) {
-    const msg = payload?.message || `Request failed (${response.status})`;
-    throw new Error(msg);
-  }
-  return payload.data;
+function clampPercent(value) {
+  const asNumber = Number(value);
+  if (!Number.isFinite(asNumber)) return 0;
+  return Math.max(0, Math.min(100, asNumber));
 }
 
-async function apiGet(url) {
-  const response = await fetch(url, { method: "GET" });
-  return parseApiResponse(response);
-}
-
-async function apiPostJson(url, body = {}) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return parseApiResponse(response);
-}
-
-async function apiPostForm(url, formData) {
-  const response = await fetch(url, {
-    method: "POST",
-    body: formData,
-  });
-  return parseApiResponse(response);
-}
-
-function collectPrintSettings() {
+function buildPrintSettingsPayload() {
+  const settings = loadPrintSettings();
   return {
-    width: document.getElementById("width").value.trim(),
-    height: document.getElementById("height").value.trim(),
-    xPosition: document.getElementById("xPosition").value.trim(),
-    yPosition: document.getElementById("yPosition").value.trim(),
-    scale: Number(document.getElementById("scale").value || 1),
-    rotation: Number(document.getElementById("rotation").value || 0),
-    invertX: document.getElementById("invertX").checked,
-    invertY: document.getElementById("invertY").checked,
+    width: settings.width,
+    height: settings.height,
+    xPosition: settings.xPosition,
+    yPosition: settings.yPosition,
+    scale: Number(settings.scale || 1),
+    rotation: Number(settings.rotation || 0),
+    invertX: Boolean(settings.invertX),
+    invertY: Boolean(settings.invertY),
   };
 }
 
-function updateStatusBox(status) {
-  const statusBox = document.getElementById("statusBox");
-  statusBox.textContent = JSON.stringify(status, null, 2);
+function setBadgeState(elementId, text, className) {
+  const node = document.getElementById(elementId);
+  if (!node) return;
+  node.textContent = text;
+  node.className = `badge ${className}`;
+}
+
+function formatDistance(value) {
+  const asNumber = Number(value);
+  if (!Number.isFinite(asNumber)) return "0 mm";
+  return `${asNumber.toFixed(3)} mm`;
+}
+
+function renderStatusGui(status) {
+  const isConnected = Boolean(status.is_open);
+  const isBusy = Boolean(status.is_printing);
+  const executionPercent = clampPercent(status.current_execution_percent);
+  const remainingPenPercent = clampPercent(status.remaining_pen_percent);
+  const hasPenConfig = Number(status.max_pen_distance_m || 0) > 0;
+
+  setBadgeState(
+    "statusConnectionBadge",
+    isConnected ? "Connected" : "Disconnected",
+    isConnected ? "badge-ok" : "badge-neutral"
+  );
+  setBadgeState(
+    "statusBusyBadge",
+    isBusy ? "Busy" : "Idle",
+    isBusy ? "badge-warn" : "badge-ok"
+  );
+
+  const portNode = document.getElementById("statusPort");
+  if (portNode) {
+    portNode.textContent = status.port_name || "N/A";
+  }
+
+  const cumulativeNode = document.getElementById("statusCumulativeDistance");
+  if (cumulativeNode) {
+    cumulativeNode.textContent = formatDistance(status.cumulative_distance_mm);
+  }
+
+  const executedNode = document.getElementById("statusExecutedDistance");
+  if (executedNode) {
+    executedNode.textContent = formatDistance(status.current_executed_distance_mm);
+  }
+
+  const executionPercentNode = document.getElementById("statusExecutionPercent");
+  if (executionPercentNode) {
+    executionPercentNode.textContent = `${executionPercent.toFixed(2)}%`;
+  }
+
+  const executionFillNode = document.getElementById("statusExecutionFill");
+  if (executionFillNode) {
+    executionFillNode.style.width = `${executionPercent}%`;
+  }
+
+  const penPercentNode = document.getElementById("statusPenRemaining");
+  if (penPercentNode) {
+    penPercentNode.textContent = hasPenConfig ? `${remainingPenPercent.toFixed(2)}%` : "N/A";
+  }
+
+  const penFillNode = document.getElementById("statusPenFill");
+  if (penFillNode) {
+    penFillNode.style.width = `${hasPenConfig ? remainingPenPercent : 0}%`;
+  }
 }
 
 async function refreshStatus() {
   try {
     const status = await apiGet("/api/status");
-    updateStatusBox(status);
+    renderStatusGui(status);
     appendLog("Status refreshed.");
   } catch (error) {
     appendLog(`Status error: ${error.message}`, true);
-  }
-}
-
-async function connectPrinter() {
-  const comPort = document.getElementById("comPort").value.trim();
-  const baudRateRaw = document.getElementById("baudRate").value.trim();
-  const payload = {};
-  if (comPort) payload.comPort = comPort;
-  if (baudRateRaw) payload.baudRate = Number(baudRateRaw);
-
-  try {
-    await apiPostJson("/api/connect", payload);
-    appendLog("Printer connected.");
-    await refreshStatus();
-  } catch (error) {
-    appendLog(`Connect error: ${error.message}`, true);
-  }
-}
-
-async function disconnectPrinter() {
-  try {
-    await apiPostJson("/api/disconnect");
-    appendLog("Printer disconnected.");
-    await refreshStatus();
-  } catch (error) {
-    appendLog(`Disconnect error: ${error.message}`, true);
   }
 }
 
@@ -116,24 +123,13 @@ async function uploadSvgFromFile(file) {
 }
 
 async function printUploadedSvg() {
-  const payload = { printRequest: collectPrintSettings() };
+  const payload = { printRequest: buildPrintSettingsPayload() };
   try {
     const data = await apiPostJson("/api/print", payload);
     appendLog(`Print completed. Commands sent: ${data.result.commands_sent}.`);
     await refreshStatus();
   } catch (error) {
     appendLog(`Print error: ${error.message}`, true);
-  }
-}
-
-async function runChangePen() {
-  const mode = document.getElementById("penMode").value;
-  try {
-    await apiPostJson(`/api/change-pen/${mode}`);
-    appendLog(`ChangePen ${mode} completed.`);
-    await refreshStatus();
-  } catch (error) {
-    appendLog(`ChangePen error: ${error.message}`, true);
   }
 }
 
@@ -144,16 +140,6 @@ async function runVoid() {
     await refreshStatus();
   } catch (error) {
     appendLog(`Void error: ${error.message}`, true);
-  }
-}
-
-async function runReset() {
-  try {
-    await apiPostJson("/api/reset", { clearUploadedSvg: false });
-    appendLog("Reset completed.");
-    await refreshStatus();
-  } catch (error) {
-    appendLog(`Reset error: ${error.message}`, true);
   }
 }
 
@@ -218,13 +204,8 @@ function registerEvents() {
   document.getElementById("uploadBtn").addEventListener("click", () => {
     document.getElementById("svgFileInput").click();
   });
-  document.getElementById("changePenBtn").addEventListener("click", runChangePen);
-  document.getElementById("statusBtn").addEventListener("click", refreshStatus);
-
-  document.getElementById("connectBtn").addEventListener("click", connectPrinter);
-  document.getElementById("disconnectBtn").addEventListener("click", disconnectPrinter);
   document.getElementById("voidBtn").addEventListener("click", runVoid);
-  document.getElementById("resetBtn").addEventListener("click", runReset);
+  document.getElementById("statusBtn").addEventListener("click", refreshStatus);
 
   document.getElementById("svgFileInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];

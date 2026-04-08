@@ -192,6 +192,12 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
             return api_success(message="Diwan Signature Flask API")[0]
         return send_from_directory(app.static_folder, "index.html")
 
+    @app.get("/configuration")
+    def configuration() -> Response:
+        if not app.static_folder:
+            return api_success(message="Diwan Signature Flask API")[0]
+        return send_from_directory(app.static_folder, "configuration.html")
+
     @app.get("/api/health")
     def health() -> tuple[Response, int]:
         return api_success(

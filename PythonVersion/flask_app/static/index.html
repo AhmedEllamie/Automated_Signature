@@ -3,92 +3,76 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Diwan Printer Control</title>
+  <title>Automated Signature</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <main class="container">
-    <h1>Diwan Printer Control</h1>
+    <header class="topbar">
+      <h1>Automated Signature</h1>
+      <a class="nav-link" href="/configuration">Configuration</a>
+    </header>
 
-    <section class="card">
-      <h2>Main Actions</h2>
-      <div class="button-row">
-        <button id="captureBtn" class="primary">Capture</button>
-        <button id="printBtn" class="primary">Print</button>
-        <button id="uploadBtn" class="primary">Upload</button>
-        <button id="changePenBtn" class="primary">ChangePen</button>
-        <button id="statusBtn" class="primary">Status</button>
-      </div>
-      <input id="svgFileInput" type="file" accept=".svg,image/svg+xml" hidden>
-    </section>
+    <section class="dashboard-row">
+      <section class="card">
+        <h2>Captured Photo</h2>
+        <img id="capturePreview" alt="Latest captured photo" />
+      </section>
 
-    <section class="card">
-      <h2>Printer Connection</h2>
-      <div class="grid">
-        <label>COM/TTY Port
-          <input id="comPort" type="text" placeholder="COM5 or /dev/ttyUSB0">
-        </label>
-        <label>Baud Rate
-          <input id="baudRate" type="number" value="250000">
-        </label>
-      </div>
-      <div class="secondary-row">
-        <button id="connectBtn">Connect</button>
-        <button id="disconnectBtn">Disconnect</button>
-        <button id="voidBtn">Void</button>
-        <button id="resetBtn">Reset</button>
-      </div>
-    </section>
+      <div class="stack-column">
+        <section class="card">
+          <h2>Status</h2>
+          <div class="status-badges">
+            <span id="statusConnectionBadge" class="badge">Disconnected</span>
+            <span id="statusBusyBadge" class="badge">Idle</span>
+          </div>
+          <div class="status-panel">
+            <div class="metric-row">
+              <span>Port</span>
+              <strong id="statusPort">N/A</strong>
+            </div>
+            <div class="metric-row">
+              <span>Cumulative Distance</span>
+              <strong id="statusCumulativeDistance">0 mm</strong>
+            </div>
+            <div class="metric-row">
+              <span>Executed Distance</span>
+              <strong id="statusExecutedDistance">0 mm</strong>
+            </div>
+          </div>
+          <div class="progress-section">
+            <div class="progress-header">
+              <span>Execution Progress</span>
+              <strong id="statusExecutionPercent">0%</strong>
+            </div>
+            <div class="progress-track">
+              <div id="statusExecutionFill" class="progress-fill"></div>
+            </div>
+          </div>
+          <div class="progress-section">
+            <div class="progress-header">
+              <span>Pen Remaining</span>
+              <strong id="statusPenRemaining">0%</strong>
+            </div>
+            <div class="progress-track">
+              <div id="statusPenFill" class="progress-fill"></div>
+            </div>
+          </div>
+        </section>
 
-    <section class="card">
-      <h2>Print Settings</h2>
-      <div class="grid">
-        <label>Width
-          <input id="width" type="text" value="210mm">
-        </label>
-        <label>Height
-          <input id="height" type="text" value="297mm">
-        </label>
-        <label>X Position
-          <input id="xPosition" type="text" value="50mm">
-        </label>
-        <label>Y Position
-          <input id="yPosition" type="text" value="50mm">
-        </label>
-        <label>Scale
-          <input id="scale" type="number" value="1" min="1">
-        </label>
-        <label>Rotation
-          <input id="rotation" type="number" value="0" min="0" max="360">
-        </label>
+        <section class="card">
+          <h2>Main Actions</h2>
+          <p id="uploadedSvgLabel">Uploaded SVG: none</p>
+          <div class="button-row">
+            <button id="captureBtn" class="primary">Capture</button>
+            <button id="printBtn" class="primary">Print</button>
+            <button id="uploadBtn" class="primary">Upload</button>
+            <button id="voidBtn" class="primary">Void</button>
+            <button id="statusBtn" class="primary">Status</button>
+          </div>
+          <input id="svgFileInput" type="file" accept=".svg,image/svg+xml" hidden>
+        </section>
       </div>
-      <div class="grid">
-        <label class="checkbox">
-          <input id="invertX" type="checkbox">
-          Invert X
-        </label>
-        <label class="checkbox">
-          <input id="invertY" type="checkbox" checked>
-          Invert Y
-        </label>
-        <label>Change Pen Mode
-          <select id="penMode">
-            <option value="start">start</option>
-            <option value="finish">finish</option>
-          </select>
-        </label>
-      </div>
-      <p id="uploadedSvgLabel">Uploaded SVG: none</p>
-    </section>
-
-    <section class="card">
-      <h2>Captured Photo</h2>
-      <img id="capturePreview" alt="Latest captured photo" />
-    </section>
-
-    <section class="card">
-      <h2>Status</h2>
-      <pre id="statusBox">{}</pre>
     </section>
 
     <section class="card">
@@ -97,6 +81,7 @@
     </section>
   </main>
 
+  <script src="/static/common.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

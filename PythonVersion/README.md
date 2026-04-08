@@ -68,6 +68,11 @@ python -m PythonVersion.main serve-flask --host 0.0.0.0 --port 5001
 
 Open:
 - `http://localhost:5001/` for the frontend page.
+- `http://localhost:5001/configuration` for connection and printer settings.
+
+Frontend notes:
+- Main page uses a visual status dashboard and main actions (`Capture`, `Print`, `Upload`, `Void`, `Status`).
+- Connection and print settings are saved in browser localStorage and reused for printing.
 
 Flask APIs are available under `/api`, including:
 - `POST /api/connect`
