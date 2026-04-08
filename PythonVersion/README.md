@@ -152,6 +152,25 @@ ls /dev/ttyUSB* /dev/ttyACM*
 
 - Update port settings in command arguments or in config loading.
 
+## Ubuntu release with systemd
+
+Release/deployment assets are included:
+
+- Service template: `PythonVersion/deploy/ubuntu/diwan-signature-flask.service`
+- Environment template: `PythonVersion/deploy/ubuntu/diwan-signature.env.example`
+- Full step-by-step guide: `PythonVersion/UBUNTU_RELEASE_GUIDE.md`
+
+Quick start:
+
+```bash
+sudo cp PythonVersion/deploy/ubuntu/diwan-signature-flask.service /etc/systemd/system/diwan-signature-flask.service
+sudo mkdir -p /etc/diwan-signature
+sudo cp PythonVersion/deploy/ubuntu/diwan-signature.env.example /etc/diwan-signature/diwan-signature.env
+sudo systemctl daemon-reload
+sudo systemctl enable diwan-signature-flask
+sudo systemctl start diwan-signature-flask
+```
+
 ## Config source
 
 `dependency_injection.py` attempts to read defaults from `UUNATEK.API/appsettings.json` if present, then builds Python service instances from those values.
