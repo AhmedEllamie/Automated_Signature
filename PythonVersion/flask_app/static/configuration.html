@@ -15,7 +15,7 @@
 
     <section class="config-grid">
       <section class="card">
-        <h2>Printer Connection</h2>
+        <h2>Printer Connection & Settings</h2>
         <p class="muted small-print">Baud rate is fixed at 250000.</p>
         <div class="connection-scan-row">
           <label>COM/TTY Port
@@ -28,10 +28,7 @@
           <button id="connectBtn">Connect</button>
           <button id="disconnectBtn">Disconnect</button>
         </div>
-      </section>
-
-      <section class="card">
-        <h2>Printer Settings</h2>
+        <div class="printer-settings-section">
         <div class="settings-row-pair">
           <label>Height
             <input id="height" type="text" value="297mm">
@@ -88,6 +85,7 @@
             <button id="resetBtn" type="button">Reset distance</button>
           </div>
         </div>
+        </div>
       </section>
 
       <section class="card">
@@ -97,20 +95,19 @@
           <button id="showStreamBtn" type="button">Show stream</button>
           <button id="stopStreamBtn" type="button">Stop stream</button>
           <button id="clearPointsBtn" type="button">Clear points</button>
+          <button id="sendScannerConfigBtn" type="button" class="primary">Send scanner config</button>
         </div>
         <div class="settings-row-pair">
-          <label>Stream FPS
-            <input id="streamFps" type="number" min="1" max="25" step="1" value="10">
-          </label>
-          <label>Stream width (0 = original)
-            <input id="streamWidth" type="number" min="0" step="1" value="1280">
-          </label>
-        </div>
-        <div class="settings-row-pair settings-check-row">
-          <label class="checkbox">
-            <input id="autofocusEnabled" type="checkbox">
-            Autofocus enabled
-          </label>
+          <div class="autofocus-mode-group" role="radiogroup" aria-label="Autofocus mode">
+            <label class="radio-inline">
+              <input id="autofocusEnabledRadio" name="autofocusMode" type="radio" value="enabled">
+              Autofocus Enable
+            </label>
+            <label class="radio-inline">
+              <input id="autofocusDisabledRadio" name="autofocusMode" type="radio" value="disabled">
+              Autofocus Disable
+            </label>
+          </div>
         </div>
         <div class="focus-controls">
           <button id="focusDownBtn" type="button">-</button>

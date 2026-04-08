@@ -21,9 +21,7 @@ const DEFAULT_CONNECTION_SETTINGS = {
 const DEFAULT_CAPTURE_SETTINGS = {
   autofocusEnabled: false,
   manualFocusValue: 35,
-  quadPoints: [[100, 120], [1700, 130], [1710, 980], [120, 990]],
-  streamFps: 10,
-  streamWidth: 1280,
+  quadPoints: [],
   streamFisheye: true,
 };
 

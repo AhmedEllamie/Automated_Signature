@@ -22,14 +22,22 @@ Base URL example:
 
 ## 2) Required request sequence
 
-1. Configure manual focus + 4 points:
-   - `POST /session/manual-config`
-2. Create capture job:
+1. Set focus mode (autofocus on/off):
+   - `POST /session/focus-mode`
+2. Optional focus step (+/-):
+   - `POST /session/focus-adjust`
+3. Set 4 points:
+   - `POST /session/quad-points`
+4. Create capture job:
    - `POST /jobs`
-3. Poll job status:
+5. Poll job status:
    - `GET /jobs/{job_id}`
-4. Download rectified image:
+6. Download rectified image:
    - `GET /jobs/{job_id}/image`
+
+Legacy combined endpoint (still supported):
+
+- `POST /session/manual-config`
 
 ## 3) API details
 
@@ -45,10 +53,10 @@ Base URL example:
 
 Important behavior:
 
-- Stream holds camera lock while connected.
-- If a capture job is running, stream returns `409 camera_busy`.
-- While stream is open, capture jobs also wait/fail with busy behavior depending caller timing.
-- Recommended: close stream before `POST /jobs`.
+- Stream uses the shared latest-frame cache and does not hold the camera device lock.
+- Focus APIs and quad APIs can be called while stream is open.
+- Capture jobs also use frame snapshots from the same cache, so they can run while stream is open.
+- If camera is unavailable or no recent frame exists, APIs return explicit errors.
 
 ### Health
 
@@ -59,7 +67,52 @@ Important behavior:
 {"ok": true, "status": "ready"}
 ```
 
-### Set manual config
+### Set focus mode only
+
+- `POST /session/focus-mode`
+- Body:
+
+```json
+{
+  "autofocus_enabled": false,
+  "manual_focus_value": 35
+}
+```
+
+Focus commands are queued to the camera owner loop and applied asynchronously.  
+The response reflects requested state; device state converges on the next camera-loop ticks.
+
+### Focus adjust (+/-) only
+
+- `POST /session/focus-adjust`
+- Body examples:
+
+```json
+{"direction": "+"}
+```
+
+```json
+{"direction": "-", "step": 2.5}
+```
+
+Accepted `direction`:
+
+- `"+"`, `"-"`, `"in"`, `"out"`, `"near"`, `"far"`
+
+This command is also queued asynchronously to the camera owner loop.
+
+### Set 4-point config only
+
+- `POST /session/quad-points`
+- Body:
+
+```json
+{
+  "quad_points": [[100, 120], [1700, 130], [1710, 980], [120, 990]]
+}
+```
+
+### Set manual config (legacy combined)
 
 - `POST /session/manual-config`
 - Body:
@@ -152,16 +205,34 @@ BASE = "http://127.0.0.1:8008"
 TOKEN = "your-token"
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
-# 1) configure manual mode
-cfg = {
-    "autofocus_enabled": False,
-    "manual_focus_value": 35,
-    "quad_points": [[100, 120], [1700, 130], [1710, 980], [120, 990]],
-}
-r = requests.post(f"{BASE}/session/manual-config", json=cfg, headers=HEADERS, timeout=10)
+# 1) set focus mode
+r = requests.post(
+    f"{BASE}/session/focus-mode",
+    json={"autofocus_enabled": False, "manual_focus_value": 35},
+    headers=HEADERS,
+    timeout=10,
+)
 r.raise_for_status()
 
-# 2) create job
+# 2) optional focus +/- adjustment
+r = requests.post(
+    f"{BASE}/session/focus-adjust",
+    json={"direction": "+", "step": 1.0},
+    headers=HEADERS,
+    timeout=10,
+)
+r.raise_for_status()
+
+# 3) set 4 points
+r = requests.post(
+    f"{BASE}/session/quad-points",
+    json={"quad_points": [[100, 120], [1700, 130], [1710, 980], [120, 990]]},
+    headers=HEADERS,
+    timeout=10,
+)
+r.raise_for_status()
+
+# 4) create job
 r = requests.post(
     f"{BASE}/jobs",
     json={"mode": "manual", "readability_required": True, "timeout_seconds": 15},
@@ -171,7 +242,7 @@ r = requests.post(
 r.raise_for_status()
 job_id = r.json()["job"]["job_id"]
 
-# 3) poll status
+# 5) poll status
 while True:
     r = requests.get(f"{BASE}/jobs/{job_id}", headers=HEADERS, timeout=10)
     r.raise_for_status()
@@ -183,7 +254,7 @@ while True:
 if job["status"] != "succeeded":
     raise RuntimeError(f"Capture failed: {job.get('error')} - {job.get('detail')}")
 
-# 4) download rectified PNG
+# 6) download rectified PNG
 r = requests.get(f"{BASE}/jobs/{job_id}/image", headers=HEADERS, timeout=15)
 r.raise_for_status()
 with open("rectified.png", "wb") as f:
@@ -230,26 +301,4 @@ This repo also provides:
 
 - `scanner_service/client.py`: reusable Python client
 - `scanner_service/flask_bridge.py`: Flask blueprint adapter
-
-## 8) Flask UI bridge endpoints (this project)
-
-The Flask UI in `PythonVersion/flask_app` now exposes scanner proxy endpoints:
-
-- `GET /api/scanner/stream.mjpg`
-  - Proxies scanner `GET /stream.mjpg`.
-  - Supports query params: `fps`, `width`, `fisheye`.
-  - Used by Configuration page "Show stream" button for accurate 4-point setup.
-
-- `POST /api/scanner/capture-manual`
-  - Body must include:
-    - `autofocus_enabled` (bool)
-    - `manual_focus_value` (number)
-    - `quad_points` (array of 4 `[x,y]` points)
-  - Server flow:
-    1. Calls scanner `POST /session/manual-config`
-    2. Calls scanner `POST /jobs` with manual mode
-    3. Polls scanner `GET /jobs/{job_id}` until terminal status
-    4. Downloads scanner `GET /jobs/{job_id}/image`
-    5. Stores image as latest capture (`/api/capture/latest/image`)
-  - Response includes `imageUrl` for the main dashboard preview.
 

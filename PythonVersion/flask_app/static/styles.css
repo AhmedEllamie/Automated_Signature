@@ -143,6 +143,12 @@ button:disabled {
   min-width: 180px;
 }
 
+.printer-settings-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #d7dce3;
+}
+
 .small-print {
   font-size: 13px;
   margin: 0 0 10px;
@@ -196,6 +202,21 @@ textarea {
   font-weight: 700;
 }
 
+.autofocus-mode-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+label.radio-inline {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
 .stream-wrapper {
   position: relative;
   width: 100%;
@@ -203,13 +224,20 @@ textarea {
   border-radius: 6px;
   overflow: hidden;
   background: #0f172a;
-  min-height: 220px;
+  min-height: 520px;
+  height: 520px;
 }
 
 #streamPreview {
-  display: block;
-  width: 100%;
-  height: auto;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--stream-rotated-width, 100%);
+  height: var(--stream-rotated-height, 100%);
+  object-fit: cover;
+  object-position: center;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  transform-origin: center center;
   cursor: crosshair;
 }
 

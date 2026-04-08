@@ -240,8 +240,89 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
     capture_settings = load_capture_settings()
     scanner_settings = load_scanner_service_settings()
     runtime_state = RuntimeState()
+    last_scanner_manual_config: dict[str, Any] = {}
 
     app = Flask(__name__, static_folder="static", static_url_path="/static")
+
+    def _merge_scanner_manual_config(payload: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(payload)
+        if "quad_points" not in merged and isinstance(last_scanner_manual_config.get("quad_points"), list):
+            merged["quad_points"] = last_scanner_manual_config["quad_points"]
+        if "autofocus_enabled" not in merged and "autofocus_enabled" in last_scanner_manual_config:
+            merged["autofocus_enabled"] = last_scanner_manual_config.get("autofocus_enabled")
+        if "manual_focus_value" not in merged and "manual_focus_value" in last_scanner_manual_config:
+            merged["manual_focus_value"] = last_scanner_manual_config.get("manual_focus_value")
+        return merged
+
+    def _remember_scanner_manual_config(payload: dict[str, Any], scanner_response: dict[str, Any]) -> None:
+        source = scanner_response.get("manual_config")
+        if not isinstance(source, dict):
+            source = payload
+        for key in ("autofocus_enabled", "manual_focus_value", "quad_points", "frame_width", "frame_height"):
+            if key in source:
+                last_scanner_manual_config[key] = source.get(key)
+
+    def _apply_scanner_session_config(
+        payload: dict[str, Any],
+        *,
+        require_quad_points: bool,
+    ) -> dict[str, Any]:
+        merged_payload = _merge_scanner_manual_config(payload)
+        focus_payload = {
+            "autofocus_enabled": bool(merged_payload.get("autofocus_enabled", False)),
+            "manual_focus_value": float(merged_payload.get("manual_focus_value", 35)),
+        }
+        quad_points = merged_payload.get("quad_points")
+        if require_quad_points and not isinstance(quad_points, list):
+            raise RuntimeError("quad_points are required for this operation.")
+
+        try:
+            _, focus_mode_response = _scanner_request_json(
+                scanner_settings,
+                "/session/focus-mode",
+                method="POST",
+                body=focus_payload,
+            )
+            if focus_mode_response.get("ok") is False:
+                raise RuntimeError(focus_mode_response.get("message") or "Scanner focus mode failed.")
+
+            quad_points_response: dict[str, Any] = {}
+            if isinstance(quad_points, list):
+                _, quad_points_response = _scanner_request_json(
+                    scanner_settings,
+                    "/session/quad-points",
+                    method="POST",
+                    body={"quad_points": quad_points},
+                )
+                if quad_points_response.get("ok") is False:
+                    raise RuntimeError(quad_points_response.get("message") or "Scanner quad points failed.")
+
+            composed_response: dict[str, Any] = {"ok": True}
+            composed_response["focus_mode"] = focus_mode_response
+            if quad_points_response:
+                composed_response["quad_points"] = quad_points_response
+            composed_response["manual_config"] = {
+                "autofocus_enabled": focus_payload["autofocus_enabled"],
+                "manual_focus_value": focus_payload["manual_focus_value"],
+                "quad_points": quad_points if isinstance(quad_points, list) else last_scanner_manual_config.get("quad_points"),
+                "frame_width": last_scanner_manual_config.get("frame_width"),
+                "frame_height": last_scanner_manual_config.get("frame_height"),
+            }
+            return composed_response
+        except HTTPError as ex:
+            # New split endpoints may not be available on older scanner services.
+            if ex.code not in {404, 405}:
+                raise
+
+        _, manual_config_response = _scanner_request_json(
+            scanner_settings,
+            "/session/manual-config",
+            method="POST",
+            body=merged_payload,
+        )
+        if manual_config_response.get("ok") is False:
+            raise RuntimeError(manual_config_response.get("message") or "Scanner manual config failed.")
+        return manual_config_response
 
     @app.get("/")
     def home() -> Response:
@@ -321,14 +402,10 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
         if not payload:
             return api_error("Manual config payload is required.", error_code="SCANNER_CONFIG_REQUIRED", status_code=400)
         try:
-            _, manual_config_response = _scanner_request_json(
-                scanner_settings,
-                "/session/manual-config",
-                method="POST",
-                body=payload,
-            )
+            manual_config_response = _apply_scanner_session_config(payload, require_quad_points=False)
             if manual_config_response.get("ok") is False:
                 raise RuntimeError(manual_config_response.get("message") or "Scanner manual config failed.")
+            _remember_scanner_manual_config(payload, manual_config_response)
         except HTTPError as ex:
             body = ex.read().decode("utf-8", errors="ignore")
             return api_error(
@@ -346,6 +423,38 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
         except Exception as ex:
             return api_error(f"Manual config failed: {ex}", error_code="SCANNER_CONFIG_FAILED", status_code=500)
         return api_success("Scanner manual config applied.", data=manual_config_response)
+
+    @app.post("/api/scanner/focus-adjust")
+    def scanner_focus_adjust() -> tuple[Response, int]:
+        payload = _get_json_dict()
+        if not payload:
+            return api_error("Focus adjust payload is required.", error_code="SCANNER_CONFIG_REQUIRED", status_code=400)
+        try:
+            _, adjust_response = _scanner_request_json(
+                scanner_settings,
+                "/session/focus-adjust",
+                method="POST",
+                body=payload,
+            )
+            if adjust_response.get("ok") is False:
+                raise RuntimeError(adjust_response.get("message") or "Scanner focus adjust failed.")
+        except HTTPError as ex:
+            body = ex.read().decode("utf-8", errors="ignore")
+            return api_error(
+                f"Scanner focus adjust failed with HTTP {ex.code}.",
+                error_code="SCANNER_HTTP_ERROR",
+                status_code=502,
+                details={"statusCode": ex.code, "responseBody": body[:4000]},
+            )
+        except URLError as ex:
+            return api_error(
+                f"Failed to reach scanner service: {ex}",
+                error_code="SCANNER_UNREACHABLE",
+                status_code=502,
+            )
+        except Exception as ex:
+            return api_error(f"Focus adjust failed: {ex}", error_code="SCANNER_CONFIG_FAILED", status_code=500)
+        return api_success("Scanner focus adjusted.", data=adjust_response)
 
     @app.get("/api/serial-ports")
     def serial_ports() -> tuple[Response, int]:
@@ -643,14 +752,10 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
             return api_error("Capture config payload is required.", error_code="SCANNER_CONFIG_REQUIRED", status_code=400)
 
         try:
-            _, manual_config_response = _scanner_request_json(
-                scanner_settings,
-                "/session/manual-config",
-                method="POST",
-                body=payload,
-            )
+            manual_config_response = _apply_scanner_session_config(payload, require_quad_points=True)
             if manual_config_response.get("ok") is False:
                 raise RuntimeError(manual_config_response.get("message") or "Scanner manual config failed.")
+            _remember_scanner_manual_config(payload, manual_config_response)
 
             _, create_job_response = _scanner_request_json(
                 scanner_settings,
