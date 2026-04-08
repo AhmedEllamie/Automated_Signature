@@ -33,23 +33,22 @@ function buildPrintSettingsPayload() {
   };
 }
 
-function parseQuadPoints(quadPointsText) {
-  const lines = String(quadPointsText || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length !== 4) {
+function parseQuadPoints(points) {
+  if (!Array.isArray(points) || points.length !== 4) {
     throw new Error("Capture config requires exactly 4 points.");
   }
 
-  const points = lines.map((line) => {
-    const parts = line.split(",").map((part) => Number(part.trim()));
-    if (parts.length !== 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) {
-      throw new Error(`Invalid point format: "${line}". Use x,y.`);
+  return points.map((point) => {
+    if (!Array.isArray(point) || point.length !== 2) {
+      throw new Error("Invalid 4-point data in config.");
     }
-    return [parts[0], parts[1]];
+    const x = Number(point[0]);
+    const y = Number(point[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error("Invalid 4-point values in config.");
+    }
+    return [x, y];
   });
-  return points;
 }
 
 function buildCapturePayload() {
@@ -57,7 +56,7 @@ function buildCapturePayload() {
   return {
     autofocus_enabled: Boolean(capture.autofocusEnabled),
     manual_focus_value: Number(capture.manualFocusValue || 35),
-    quad_points: parseQuadPoints(capture.quadPointsText),
+    quad_points: parseQuadPoints(capture.quadPoints),
   };
 }
 

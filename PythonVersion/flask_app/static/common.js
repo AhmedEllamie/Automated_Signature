@@ -21,7 +21,7 @@ const DEFAULT_CONNECTION_SETTINGS = {
 const DEFAULT_CAPTURE_SETTINGS = {
   autofocusEnabled: false,
   manualFocusValue: 35,
-  quadPointsText: "100,120\n1700,130\n1710,980\n120,990",
+  quadPoints: [[100, 120], [1700, 130], [1710, 980], [120, 990]],
   streamFps: 10,
   streamWidth: 1280,
   streamFisheye: true,

@@ -1,4 +1,13 @@
 const FIXED_BAUD_RATE = 250000;
+const MAX_FOCUS_VALUE = 255;
+const MIN_FOCUS_VALUE = 0;
+const REQUIRED_QUAD_POINTS = 4;
+const POINT_LABELS = ["TL", "TR", "BR", "BL"];
+
+const uiState = {
+  streamVisible: false,
+  quadPoints: [],
+};
 
 function showConfigMessage(message, isError = false) {
   const node = document.getElementById("configMessage");
@@ -33,11 +42,38 @@ function readCaptureSettingsForm() {
   return {
     autofocusEnabled: document.getElementById("autofocusEnabled").checked,
     manualFocusValue: Number(document.getElementById("manualFocusValue").value || 35),
-    quadPointsText: document.getElementById("quadPointsText").value.trim(),
+    quadPoints: uiState.quadPoints.map((point) => [point[0], point[1]]),
     streamFps: Number(document.getElementById("streamFps").value || 10),
     streamWidth: Number(document.getElementById("streamWidth").value || 0),
     streamFisheye: document.getElementById("streamFisheye").checked,
   };
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function renderFocusLabel() {
+  const value = Number(document.getElementById("manualFocusValue").value || 35);
+  document.getElementById("manualFocusValueLabel").textContent = String(value);
+}
+
+function renderQuadPoints() {
+  const overlay = document.getElementById("streamPointsOverlay");
+  overlay.innerHTML = "";
+  uiState.quadPoints.forEach((point, index) => {
+    const marker = document.createElement("div");
+    marker.className = "stream-point";
+    marker.style.left = `${point[0]}%`;
+    marker.style.top = `${point[1]}%`;
+    marker.textContent = POINT_LABELS[index] || String(index + 1);
+    overlay.appendChild(marker);
+  });
+
+  const status = document.getElementById("quadPointsStatus");
+  if (status) {
+    status.textContent = `Points: ${uiState.quadPoints.length}/${REQUIRED_QUAD_POINTS} (click on stream: top-left, top-right, bottom-right, bottom-left)`;
+  }
 }
 
 function hydrateConfiguration() {
@@ -58,11 +94,18 @@ function hydrateConfiguration() {
 
   const capture = loadCaptureSettings();
   document.getElementById("autofocusEnabled").checked = Boolean(capture.autofocusEnabled);
-  document.getElementById("manualFocusValue").value = Number(capture.manualFocusValue || 35);
-  document.getElementById("quadPointsText").value = capture.quadPointsText || "";
+  document.getElementById("manualFocusValue").value = clamp(Number(capture.manualFocusValue || 35), MIN_FOCUS_VALUE, MAX_FOCUS_VALUE);
   document.getElementById("streamFps").value = Number(capture.streamFps || 10);
   document.getElementById("streamWidth").value = Number(capture.streamWidth || 0);
   document.getElementById("streamFisheye").checked = Boolean(capture.streamFisheye);
+  if (Array.isArray(capture.quadPoints)) {
+    uiState.quadPoints = capture.quadPoints
+      .filter((point) => Array.isArray(point) && point.length === 2)
+      .map((point) => [Number(point[0]), Number(point[1])])
+      .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  }
+  renderFocusLabel();
+  renderQuadPoints();
 }
 
 function persistConnectionSettings() {
@@ -159,6 +202,32 @@ async function setPenMaxDistance() {
   }
 }
 
+async function applyScannerManualConfig() {
+  const capture = readCaptureSettingsForm();
+  if (capture.quadPoints.length !== REQUIRED_QUAD_POINTS) {
+    return;
+  }
+
+  const streamImage = document.getElementById("streamPreview");
+  const naturalWidth = Number(streamImage.naturalWidth || 0);
+  const naturalHeight = Number(streamImage.naturalHeight || 0);
+  if (!naturalWidth || !naturalHeight) {
+    return;
+  }
+
+  const quadPointsPx = capture.quadPoints.map((point) => [
+    Math.round((point[0] / 100) * naturalWidth),
+    Math.round((point[1] / 100) * naturalHeight),
+  ]);
+
+  const payload = {
+    autofocus_enabled: Boolean(capture.autofocusEnabled),
+    manual_focus_value: Number(capture.manualFocusValue || 35),
+    quad_points: quadPointsPx,
+  };
+  await apiPostJson("/api/scanner/manual-config", payload);
+}
+
 function registerPersistenceListeners() {
   const connectionFields = ["comPort"];
   const printFields = [
@@ -176,7 +245,6 @@ function registerPersistenceListeners() {
   const captureFields = [
     "autofocusEnabled",
     "manualFocusValue",
-    "quadPointsText",
     "streamFps",
     "streamWidth",
     "streamFisheye",
@@ -210,11 +278,73 @@ function buildStreamUrl() {
   return `/api/scanner/stream.mjpg?${params.toString()}`;
 }
 
-function showStreamWindow() {
+function showStreamInline() {
   persistCaptureSettings();
   const url = buildStreamUrl();
-  window.open(url, "_blank", "noopener,noreferrer");
-  showConfigMessage("Live stream opened. Use it to pick exact 4 points.");
+  const img = document.getElementById("streamPreview");
+  img.src = `${url}&t=${Date.now()}`;
+  uiState.streamVisible = true;
+  showConfigMessage("Live stream started.");
+}
+
+function stopStreamInline() {
+  const img = document.getElementById("streamPreview");
+  img.src = "";
+  uiState.streamVisible = false;
+  showConfigMessage("Live stream stopped.");
+}
+
+function clearQuadPoints() {
+  uiState.quadPoints = [];
+  renderQuadPoints();
+  persistCaptureSettings();
+}
+
+async function adjustManualFocus(delta) {
+  const input = document.getElementById("manualFocusValue");
+  const current = Number(input.value || 35);
+  const next = clamp(current + delta, MIN_FOCUS_VALUE, MAX_FOCUS_VALUE);
+  input.value = String(next);
+  renderFocusLabel();
+  persistCaptureSettings();
+  try {
+    await applyScannerManualConfig();
+    showConfigMessage(`Manual focus set to ${next}.`);
+  } catch (error) {
+    showConfigMessage(`Manual focus update failed: ${error.message}`, true);
+  }
+}
+
+function addQuadPointFromClick(event) {
+  const img = document.getElementById("streamPreview");
+  if (!uiState.streamVisible || !img.src) {
+    showConfigMessage("Start stream first.", true);
+    return;
+  }
+  const rect = img.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+  const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
+  const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
+  if (!Number.isFinite(xPercent) || !Number.isFinite(yPercent)) {
+    return;
+  }
+
+  if (uiState.quadPoints.length >= REQUIRED_QUAD_POINTS) {
+    uiState.quadPoints = [];
+  }
+  uiState.quadPoints.push([
+    clamp(Number(xPercent.toFixed(4)), 0, 100),
+    clamp(Number(yPercent.toFixed(4)), 0, 100),
+  ]);
+  renderQuadPoints();
+  persistCaptureSettings();
+  if (uiState.quadPoints.length === REQUIRED_QUAD_POINTS) {
+    void applyScannerManualConfig()
+      .then(() => showConfigMessage("4 points applied to scanner manual config."))
+      .catch((error) => showConfigMessage(`Apply points failed: ${error.message}`, true));
+  }
 }
 
 function registerActions() {
@@ -224,7 +354,20 @@ function registerActions() {
   document.getElementById("setPenMaxBtn").addEventListener("click", setPenMaxDistance);
   document.getElementById("changePenBtn").addEventListener("click", runChangePen);
   document.getElementById("resetBtn").addEventListener("click", runReset);
-  document.getElementById("showStreamBtn").addEventListener("click", showStreamWindow);
+  document.getElementById("showStreamBtn").addEventListener("click", showStreamInline);
+  document.getElementById("stopStreamBtn").addEventListener("click", stopStreamInline);
+  document.getElementById("clearPointsBtn").addEventListener("click", clearQuadPoints);
+  document.getElementById("focusDownBtn").addEventListener("click", () => {
+    void adjustManualFocus(-1);
+  });
+  document.getElementById("focusUpBtn").addEventListener("click", () => {
+    void adjustManualFocus(1);
+  });
+  document.getElementById("streamPreview").addEventListener("click", addQuadPointFromClick);
+  document.getElementById("autofocusEnabled").addEventListener("change", () => {
+    persistCaptureSettings();
+    void applyScannerManualConfig().catch(() => {});
+  });
 }
 
 function initConfigurationPage() {

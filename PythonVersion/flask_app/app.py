@@ -315,6 +315,38 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
             direct_passthrough=True,
         )
 
+    @app.post("/api/scanner/manual-config")
+    def scanner_manual_config() -> tuple[Response, int]:
+        payload = _get_json_dict()
+        if not payload:
+            return api_error("Manual config payload is required.", error_code="SCANNER_CONFIG_REQUIRED", status_code=400)
+        try:
+            _, manual_config_response = _scanner_request_json(
+                scanner_settings,
+                "/session/manual-config",
+                method="POST",
+                body=payload,
+            )
+            if manual_config_response.get("ok") is False:
+                raise RuntimeError(manual_config_response.get("message") or "Scanner manual config failed.")
+        except HTTPError as ex:
+            body = ex.read().decode("utf-8", errors="ignore")
+            return api_error(
+                f"Scanner manual config failed with HTTP {ex.code}.",
+                error_code="SCANNER_HTTP_ERROR",
+                status_code=502,
+                details={"statusCode": ex.code, "responseBody": body[:4000]},
+            )
+        except URLError as ex:
+            return api_error(
+                f"Failed to reach scanner service: {ex}",
+                error_code="SCANNER_UNREACHABLE",
+                status_code=502,
+            )
+        except Exception as ex:
+            return api_error(f"Manual config failed: {ex}", error_code="SCANNER_CONFIG_FAILED", status_code=500)
+        return api_success("Scanner manual config applied.", data=manual_config_response)
+
     @app.get("/api/serial-ports")
     def serial_ports() -> tuple[Response, int]:
         try:

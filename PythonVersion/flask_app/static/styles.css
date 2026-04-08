@@ -176,6 +176,67 @@ textarea {
   resize: vertical;
 }
 
+.stream-actions-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.focus-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.focus-controls button {
+  min-width: 42px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.stream-wrapper {
+  position: relative;
+  width: 100%;
+  border: 1px solid #d7dce3;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0f172a;
+  min-height: 220px;
+}
+
+#streamPreview {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+
+.stream-overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.stream-point {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  margin-top: -8px;
+  border-radius: 999px;
+  background: #ef4444;
+  border: 2px solid #ffffff;
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 #uploadedSvgLabel {
   margin: 0 0 12px;
   color: #5f6b7a;
