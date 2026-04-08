@@ -36,3 +36,5 @@ output/
 *.jpeg
 *.pyc
 *-314.pyc
+*-312.pyc
+*.cpython-*.pyc

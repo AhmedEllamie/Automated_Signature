@@ -11,6 +11,34 @@ This project now supports fully automatic scanning in one-shot cycles:
 
 No `S` key is required.
 
+## Option A: Separate HTTP Scanner Service (Async Jobs)
+
+If your Flask backend is in a separate repo, run this scanner repo as a local service and call it over HTTP.
+
+Start service:
+
+```bash
+python run_scanner_service.py
+```
+
+Config env vars:
+
+- `SCANNER_SERVICE_HOST` (default `127.0.0.1`)
+- `SCANNER_SERVICE_PORT` (default `8008`)
+- `SCANNER_SERVICE_TOKEN` (optional bearer token)
+
+Manual capture contract:
+
+1. `POST /session/manual-config` with focus settings + 4 corner points.
+2. `POST /jobs` with `{"mode":"manual"}`.
+3. Poll `GET /jobs/{job_id}` until `status` is `succeeded` or `failed`.
+4. Fetch image from `GET /jobs/{job_id}/image`.
+
+Flask-side helpers are available in:
+
+- `scanner_service/client.py` (HTTP client)
+- `scanner_service/flask_bridge.py` (ready-to-register Flask blueprint)
+
 ## 1) Quick Start
 
 1. Install dependencies:

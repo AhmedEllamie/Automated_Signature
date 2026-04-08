@@ -159,6 +159,44 @@ Run the scanner script:
 python main.py
 ```
 
+### Async HTTP scanner service (Option A)
+
+Run scanner as a standalone local service:
+
+```bash
+python run_scanner_service.py
+```
+
+or:
+
+```bash
+python -m scanner_service
+```
+
+Default bind is `127.0.0.1:8008`. Override with:
+
+- `SCANNER_SERVICE_HOST`
+- `SCANNER_SERVICE_PORT`
+- `SCANNER_SERVICE_TOKEN` (optional bearer token for all endpoints except `/health`)
+
+Service endpoints:
+
+- `GET /health`
+- `GET /session/manual-config`
+- `POST /session/manual-config` (set autofocus/manual-focus + 4-point quad)
+- `POST /jobs` (enqueue manual capture job)
+- `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/image`
+
+Manual async flow:
+
+1. POST manual config (focus + 4 points)
+2. POST job (`mode=manual`)
+3. Poll job status
+4. Download rectified PNG
+
+There is also a reusable HTTP client in `scanner_service/client.py` and a Flask bridge blueprint in `scanner_service/flask_bridge.py` for integration from another repo.
+
 In webcam mode, scanning is fully automatic by default:
 - detect page
 - flatten page
