@@ -221,6 +221,36 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
             },
         )
 
+    @app.get("/api/serial-ports")
+    def serial_ports() -> tuple[Response, int]:
+        try:
+            from serial.tools import list_ports
+        except ImportError:
+            return api_error(
+                "Serial port listing requires pyserial.",
+                error_code="SERIAL_LIST_UNAVAILABLE",
+                status_code=503,
+            )
+
+        try:
+            entries = []
+            for p in list_ports.comports():
+                entries.append(
+                    {
+                        "device": p.device,
+                        "description": (p.description or "").strip(),
+                        "manufacturer": (p.manufacturer or "").strip(),
+                    }
+                )
+        except Exception as ex:
+            return api_error(
+                f"Failed to list serial ports: {ex}",
+                error_code="SERIAL_LIST_FAILED",
+                status_code=500,
+            )
+
+        return api_success(message="Serial ports listed.", data={"ports": entries})
+
     @app.post("/api/connect")
     def connect() -> tuple[Response, int]:
         if provider.printer_service.is_open:

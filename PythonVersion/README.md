@@ -93,6 +93,7 @@ Flask APIs are available under `/api`, including:
 - `GET /api/requests?count=10`
 - `GET /api/health`
 - `GET /api/config`
+- `GET /api/serial-ports` (lists USB/COM devices via pyserial; used by Configuration “Scan ports”)
 
 ### Capture integration environment variables (Flask)
 

@@ -1,3 +1,5 @@
+const FIXED_BAUD_RATE = 250000;
+
 function showConfigMessage(message, isError = false) {
   const node = document.getElementById("configMessage");
   if (!node) return;
@@ -8,7 +10,7 @@ function showConfigMessage(message, isError = false) {
 function readConnectionForm() {
   return {
     comPort: document.getElementById("comPort").value.trim(),
-    baudRate: Number(document.getElementById("baudRate").value || 250000),
+    baudRate: FIXED_BAUD_RATE,
   };
 }
 
@@ -29,7 +31,6 @@ function readPrintSettingsForm() {
 function hydrateConfiguration() {
   const connection = loadConnectionSettings();
   document.getElementById("comPort").value = connection.comPort || "";
-  document.getElementById("baudRate").value = connection.baudRate || 250000;
 
   const print = loadPrintSettings();
   document.getElementById("width").value = print.width || "210mm";
@@ -51,10 +52,34 @@ function persistPrintSettings() {
   savePrintSettings(readPrintSettingsForm());
 }
 
+async function scanSerialPorts() {
+  const btn = document.getElementById("scanPortsBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const data = await apiGet("/api/serial-ports");
+    const list = document.getElementById("comPortList");
+    list.innerHTML = "";
+    for (const p of data.ports || []) {
+      const opt = document.createElement("option");
+      opt.value = p.device;
+      const desc = [p.description, p.manufacturer].filter(Boolean).join(" — ");
+      opt.textContent = desc || p.device;
+      list.appendChild(opt);
+    }
+    const count = (data.ports || []).length;
+    showConfigMessage(count ? `Found ${count} serial port(s). Pick from suggestions or type a port.` : "No serial ports found.");
+  } catch (error) {
+    showConfigMessage(`Scan failed: ${error.message}`, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function connectPrinter() {
-  const payload = readConnectionForm();
-  if (!payload.comPort) {
-    delete payload.comPort;
+  const comPort = document.getElementById("comPort").value.trim();
+  const payload = { baudRate: FIXED_BAUD_RATE };
+  if (comPort) {
+    payload.comPort = comPort;
   }
   try {
     await apiPostJson("/api/connect", payload);
@@ -88,14 +113,14 @@ async function runChangePen() {
 async function runReset() {
   try {
     await apiPostJson("/api/reset", { clearUploadedSvg: false });
-    showConfigMessage("Reset completed.");
+    showConfigMessage("Distance reset completed.");
   } catch (error) {
     showConfigMessage(`Reset error: ${error.message}`, true);
   }
 }
 
 function registerPersistenceListeners() {
-  const connectionFields = ["comPort", "baudRate"];
+  const connectionFields = ["comPort"];
   const printFields = [
     "width",
     "height",
@@ -122,6 +147,7 @@ function registerPersistenceListeners() {
 }
 
 function registerActions() {
+  document.getElementById("scanPortsBtn").addEventListener("click", scanSerialPorts);
   document.getElementById("connectBtn").addEventListener("click", connectPrinter);
   document.getElementById("disconnectBtn").addEventListener("click", disconnectPrinter);
   document.getElementById("changePenBtn").addEventListener("click", runChangePen);

@@ -15,13 +15,13 @@
 
     <section class="card">
       <h2>Printer Connection</h2>
-      <div class="grid">
+      <p class="muted small-print">Baud rate is fixed at 250000.</p>
+      <div class="connection-scan-row">
         <label>COM/TTY Port
-          <input id="comPort" type="text" placeholder="COM5 or /dev/ttyUSB0">
+          <input id="comPort" type="text" list="comPortList" placeholder="COM5 or /dev/ttyUSB0" autocomplete="off">
+          <datalist id="comPortList"></datalist>
         </label>
-        <label>Baud Rate
-          <input id="baudRate" type="number" value="250000">
-        </label>
+        <button id="scanPortsBtn" type="button">Scan ports</button>
       </div>
       <div class="secondary-row">
         <button id="connectBtn">Connect</button>
@@ -31,19 +31,23 @@
 
     <section class="card">
       <h2>Printer Settings</h2>
-      <div class="grid">
-        <label>Width
-          <input id="width" type="text" value="210mm">
-        </label>
+      <div class="settings-row-pair">
         <label>Height
           <input id="height" type="text" value="297mm">
         </label>
+        <label>Width
+          <input id="width" type="text" value="210mm">
+        </label>
+      </div>
+      <div class="settings-row-pair">
         <label>X Position
           <input id="xPosition" type="text" value="50mm">
         </label>
         <label>Y Position
           <input id="yPosition" type="text" value="50mm">
         </label>
+      </div>
+      <div class="settings-row-pair">
         <label>Scale
           <input id="scale" type="number" value="1" min="1">
         </label>
@@ -51,7 +55,7 @@
           <input id="rotation" type="number" value="0" min="0" max="360">
         </label>
       </div>
-      <div class="grid">
+      <div class="settings-row-pair settings-check-row">
         <label class="checkbox">
           <input id="invertX" type="checkbox">
           Invert X
@@ -60,16 +64,18 @@
           <input id="invertY" type="checkbox" checked>
           Invert Y
         </label>
+      </div>
+      <div class="pen-mode-block">
         <label>Change Pen Mode
           <select id="penMode">
             <option value="start">start</option>
             <option value="finish">finish</option>
           </select>
         </label>
-      </div>
-      <div class="secondary-row">
-        <button id="changePenBtn">ChangePen</button>
-        <button id="resetBtn">Reset</button>
+        <div class="secondary-row pen-actions-row">
+          <button id="changePenBtn" type="button">ChangePen</button>
+          <button id="resetBtn" type="button">Reset distance</button>
+        </div>
       </div>
     </section>
 

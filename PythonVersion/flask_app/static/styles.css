@@ -97,6 +97,46 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.settings-row-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-check-row label.checkbox {
+  margin-top: 0;
+}
+
+.pen-mode-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.pen-actions-row {
+  margin-top: 0;
+}
+
+.connection-scan-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.connection-scan-row label {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.small-print {
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -245,6 +285,12 @@ select {
 
 @media (max-width: 900px) {
   .dashboard-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .settings-row-pair {
     grid-template-columns: 1fr;
   }
 }

@@ -39,10 +39,10 @@ function setBadgeState(elementId, text, className) {
   node.className = `badge ${className}`;
 }
 
-function formatDistance(value) {
-  const asNumber = Number(value);
-  if (!Number.isFinite(asNumber)) return "0 mm";
-  return `${asNumber.toFixed(3)} mm`;
+function formatDistanceMetersFromMm(mmValue) {
+  const meters = Number(mmValue) / 1000;
+  if (!Number.isFinite(meters)) return "0.000 m";
+  return `${meters.toFixed(3)} m`;
 }
 
 function renderStatusGui(status) {
@@ -70,12 +70,12 @@ function renderStatusGui(status) {
 
   const cumulativeNode = document.getElementById("statusCumulativeDistance");
   if (cumulativeNode) {
-    cumulativeNode.textContent = formatDistance(status.cumulative_distance_mm);
+    cumulativeNode.textContent = formatDistanceMetersFromMm(status.cumulative_distance_mm);
   }
 
   const executedNode = document.getElementById("statusExecutedDistance");
   if (executedNode) {
-    executedNode.textContent = formatDistance(status.current_executed_distance_mm);
+    executedNode.textContent = formatDistanceMetersFromMm(status.current_executed_distance_mm);
   }
 
   const executionPercentNode = document.getElementById("statusExecutionPercent");
