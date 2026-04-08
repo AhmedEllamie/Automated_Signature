@@ -58,6 +58,12 @@ h2 {
   align-items: start;
 }
 
+.config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
 .stack-column {
   display: flex;
   flex-direction: column;
@@ -102,6 +108,11 @@ button:disabled {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.field-actions {
+  display: flex;
+  align-items: flex-end;
 }
 
 .settings-check-row label.checkbox {
@@ -285,6 +296,10 @@ select {
 
 @media (max-width: 900px) {
   .dashboard-row {
+    grid-template-columns: 1fr;
+  }
+
+  .config-grid {
     grid-template-columns: 1fr;
   }
 }

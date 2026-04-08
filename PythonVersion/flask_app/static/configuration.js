@@ -25,6 +25,7 @@ function readPrintSettingsForm() {
     invertX: document.getElementById("invertX").checked,
     invertY: document.getElementById("invertY").checked,
     penMode: document.getElementById("penMode").value,
+    penMaxDistanceM: document.getElementById("penMaxDistanceM").value.trim(),
   };
 }
 
@@ -42,6 +43,7 @@ function hydrateConfiguration() {
   document.getElementById("invertX").checked = Boolean(print.invertX);
   document.getElementById("invertY").checked = Boolean(print.invertY);
   document.getElementById("penMode").value = print.penMode === "finish" ? "finish" : "start";
+  document.getElementById("penMaxDistanceM").value = print.penMaxDistanceM || "";
 }
 
 function persistConnectionSettings() {
@@ -119,6 +121,21 @@ async function runReset() {
   }
 }
 
+async function setPenMaxDistance() {
+  const rawValue = document.getElementById("penMaxDistanceM").value.trim();
+  if (!rawValue) {
+    showConfigMessage("Enter pen max distance in meters first.", true);
+    return;
+  }
+  try {
+    await apiPostJson("/api/pen-max-distance", { meters: Number(rawValue) });
+    persistPrintSettings();
+    showConfigMessage("Pen max distance updated.");
+  } catch (error) {
+    showConfigMessage(`Set pen max distance error: ${error.message}`, true);
+  }
+}
+
 function registerPersistenceListeners() {
   const connectionFields = ["comPort"];
   const printFields = [
@@ -131,6 +148,7 @@ function registerPersistenceListeners() {
     "invertX",
     "invertY",
     "penMode",
+    "penMaxDistanceM",
   ];
 
   connectionFields.forEach((id) => {
@@ -150,6 +168,7 @@ function registerActions() {
   document.getElementById("scanPortsBtn").addEventListener("click", scanSerialPorts);
   document.getElementById("connectBtn").addEventListener("click", connectPrinter);
   document.getElementById("disconnectBtn").addEventListener("click", disconnectPrinter);
+  document.getElementById("setPenMaxBtn").addEventListener("click", setPenMaxDistance);
   document.getElementById("changePenBtn").addEventListener("click", runChangePen);
   document.getElementById("resetBtn").addEventListener("click", runReset);
 }

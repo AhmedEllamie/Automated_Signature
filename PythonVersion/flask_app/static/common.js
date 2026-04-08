@@ -10,6 +10,7 @@ const DEFAULT_PRINT_SETTINGS = {
   invertX: false,
   invertY: true,
   penMode: "start",
+  penMaxDistanceM: "",
 };
 
 const DEFAULT_CONNECTION_SETTINGS = {

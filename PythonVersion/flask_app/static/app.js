@@ -1,6 +1,7 @@
 const state = {
   uploadedSvgName: null,
   capturePollHandle: null,
+  statusPollHandle: null,
 };
 
 function appendLog(message, isError = false) {
@@ -99,14 +100,29 @@ function renderStatusGui(status) {
   }
 }
 
-async function refreshStatus() {
+async function refreshStatus(options = {}) {
+  const silent = Boolean(options.silent);
   try {
     const status = await apiGet("/api/status");
     renderStatusGui(status);
-    appendLog("Status refreshed.");
+    if (!silent) {
+      appendLog("Status refreshed.");
+    }
   } catch (error) {
-    appendLog(`Status error: ${error.message}`, true);
+    if (!silent) {
+      appendLog(`Status error: ${error.message}`, true);
+    }
   }
+}
+
+function startAutoStatusRefresh(intervalMs = 3000) {
+  if (state.statusPollHandle) {
+    clearInterval(state.statusPollHandle);
+    state.statusPollHandle = null;
+  }
+  state.statusPollHandle = setInterval(() => {
+    void refreshStatus({ silent: true });
+  }, intervalMs);
 }
 
 async function uploadSvgFromFile(file) {
@@ -205,7 +221,6 @@ function registerEvents() {
     document.getElementById("svgFileInput").click();
   });
   document.getElementById("voidBtn").addEventListener("click", runVoid);
-  document.getElementById("statusBtn").addEventListener("click", refreshStatus);
 
   document.getElementById("svgFileInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
@@ -218,6 +233,7 @@ function registerEvents() {
 async function initPage() {
   registerEvents();
   await refreshStatus();
+  startAutoStatusRefresh();
   try {
     await loadLatestCapture();
   } catch (error) {

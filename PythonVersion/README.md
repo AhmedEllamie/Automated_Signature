@@ -85,6 +85,7 @@ Flask APIs are available under `/api`, including:
 - `POST /api/change-pen/finish`
 - `POST /api/change-pen` (body mode: `start` or `finish`)
 - `POST /api/reset`
+- `POST /api/pen-max-distance` (set pen max distance meters without resetting distance)
 - `POST /api/capture/request`
 - `POST /api/capture`
 - `GET /api/capture/latest`

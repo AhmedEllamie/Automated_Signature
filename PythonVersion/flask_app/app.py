@@ -458,6 +458,32 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
             },
         )
 
+    @app.post("/api/pen-max-distance")
+    def set_pen_max_distance() -> tuple[Response, int]:
+        payload = _get_json_dict() or request.form.to_dict(flat=True)
+        raw_meters = payload.get("meters") or payload.get("maxPenDistanceM")
+        if raw_meters is None:
+            return api_error(
+                "meters is required.",
+                error_code="PEN_MAX_DISTANCE_REQUIRED",
+                status_code=400,
+            )
+        try:
+            stats = provider.printer_service.set_max_pen_distance_m(float(raw_meters))
+        except ValueError as ex:
+            return api_error(str(ex), error_code="PEN_MAX_DISTANCE_INVALID", status_code=400)
+        except Exception as ex:
+            return api_error(
+                f"Failed to set max pen distance: {ex}",
+                error_code="PEN_MAX_DISTANCE_FAILED",
+                status_code=500,
+            )
+
+        return api_success(
+            message="Max pen distance updated.",
+            data={"stats": stats},
+        )
+
     @app.post("/api/capture/request")
     def request_capture() -> tuple[Response, int]:
         payload = _get_json_dict()
