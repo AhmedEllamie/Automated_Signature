@@ -369,10 +369,6 @@ async function applyScannerManualConfig(options = {}) {
 
 function queueManualFocusSync() {
   uiState.focusSyncQueued = true;
-  if (uiState.streamVisible) {
-    showConfigMessage("Focus change saved. Stop stream to apply on scanner.");
-    return;
-  }
   if (!uiState.focusSyncInFlight) {
     void flushManualFocusSync();
   }
@@ -380,9 +376,6 @@ function queueManualFocusSync() {
 
 async function flushManualFocusSync() {
   if (uiState.focusSyncInFlight || !uiState.focusSyncQueued) {
-    return;
-  }
-  if (uiState.streamVisible) {
     return;
   }
 
@@ -465,10 +458,6 @@ function stopStreamInline() {
   img.src = "";
   uiState.streamVisible = false;
   showConfigMessage("Live stream stopped.");
-  if (uiState.focusSyncQueued) {
-    showConfigMessage("Applying pending focus config...");
-    void flushManualFocusSync();
-  }
 }
 
 function clearQuadPoints() {
@@ -485,10 +474,6 @@ function adjustManualFocus(delta) {
   renderFocusLabel();
   persistCaptureSettings();
   showConfigMessage(`Manual focus updated: ${next}.`);
-  if (uiState.streamVisible) {
-    queueManualFocusSync();
-    return;
-  }
   const direction = delta >= 0 ? "+" : "-";
   const step = Math.abs(delta);
   void apiPostJson("/api/scanner/focus-adjust", { direction, step })
@@ -577,8 +562,14 @@ function registerActions() {
       persistCaptureSettings();
       renderFocusMode();
       const mode = isAutofocusEnabled() ? "enabled" : "disabled";
-      showConfigMessage(`Autofocus ${mode} selected.`);
-      queueManualFocusSync();
+      showConfigMessage(`Autofocus ${mode} selected. Sending to scanner...`);
+      void applyScannerManualConfig({ requireQuadPoints: false })
+        .then(() => {
+          showConfigMessage(`Autofocus ${mode} sent.`);
+        })
+        .catch((error) => {
+          showConfigMessage(`Autofocus update failed: ${error.message}`, true);
+        });
     });
   });
   window.addEventListener("resize", () => {

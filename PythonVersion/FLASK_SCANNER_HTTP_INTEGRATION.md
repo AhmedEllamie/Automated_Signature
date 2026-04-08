@@ -28,16 +28,22 @@ Base URL example:
    - `POST /session/focus-adjust`
 3. Set 4 points:
    - `POST /session/quad-points`
-4. Create capture job:
-   - `POST /jobs`
-5. Poll job status:
-   - `GET /jobs/{job_id}`
+4. Start capture and processing:
+   - `POST /capture/start`
+5. Poll capture status:
+   - `GET /capture/{capture_id}/status`
 6. Download rectified image:
-   - `GET /jobs/{job_id}/image`
+   - `GET /capture/{capture_id}/result`
 
 Legacy combined endpoint (still supported):
 
 - `POST /session/manual-config`
+
+Legacy capture endpoints (still supported):
+
+- `POST /jobs`
+- `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/image`
 
 ## 3) API details
 
@@ -175,6 +181,31 @@ This command is also queued asynchronously to the camera owner loop.
 }
 ```
 
+### Start capture (preferred wrapper)
+
+- `POST /capture/start`
+- Body:
+
+```json
+{
+  "readability_required": true,
+  "timeout_seconds": 15
+}
+```
+
+- Response (`202`):
+
+```json
+{
+  "ok": true,
+  "capture": {
+    "job_id": "uuid",
+    "mode": "manual",
+    "status": "queued"
+  }
+}
+```
+
 ### Poll job
 
 - `GET /jobs/{job_id}`
@@ -185,6 +216,12 @@ This command is also queued asynchronously to the camera owner loop.
 - `GET /jobs/{job_id}/image`
 - Returns `image/png` on success
 - Returns `409` if job not ready or failed
+
+### Capture wrapper status/result
+
+- `GET /capture/{capture_id}/status`
+- `GET /capture/{capture_id}/result`
+- Result endpoint returns `image/png` on success
 
 ## 4) Authentication
 
@@ -232,30 +269,30 @@ r = requests.post(
 )
 r.raise_for_status()
 
-# 4) create job
+# 4) start capture
 r = requests.post(
-    f"{BASE}/jobs",
-    json={"mode": "manual", "readability_required": True, "timeout_seconds": 15},
+    f"{BASE}/capture/start",
+    json={"readability_required": True, "timeout_seconds": 15},
     headers=HEADERS,
     timeout=10,
 )
 r.raise_for_status()
-job_id = r.json()["job"]["job_id"]
+capture_id = r.json()["capture"]["job_id"]
 
 # 5) poll status
 while True:
-    r = requests.get(f"{BASE}/jobs/{job_id}", headers=HEADERS, timeout=10)
+    r = requests.get(f"{BASE}/capture/{capture_id}/status", headers=HEADERS, timeout=10)
     r.raise_for_status()
-    job = r.json()["job"]
-    if job["status"] in ("succeeded", "failed"):
+    cap = r.json()["capture"]
+    if cap["status"] in ("succeeded", "failed"):
         break
     time.sleep(0.4)
 
-if job["status"] != "succeeded":
-    raise RuntimeError(f"Capture failed: {job.get('error')} - {job.get('detail')}")
+if cap["status"] != "succeeded":
+    raise RuntimeError(f"Capture failed: {cap.get('error')} - {cap.get('detail')}")
 
 # 6) download rectified PNG
-r = requests.get(f"{BASE}/jobs/{job_id}/image", headers=HEADERS, timeout=15)
+r = requests.get(f"{BASE}/capture/{capture_id}/result", headers=HEADERS, timeout=15)
 r.raise_for_status()
 with open("rectified.png", "wb") as f:
     f.write(r.content)

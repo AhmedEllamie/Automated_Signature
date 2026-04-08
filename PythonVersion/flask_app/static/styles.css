@@ -224,8 +224,8 @@ label.radio-inline {
   border-radius: 6px;
   overflow: hidden;
   background: #0f172a;
-  min-height: 520px;
-  height: 520px;
+  min-height: 720px;
+  height: 720px;
 }
 
 #streamPreview {
