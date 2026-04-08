@@ -57,6 +57,10 @@ class ScannerConfig:
     save_dir: str = "output"
     # If False, do not write rectified images to local disk.
     save_rectified_locally: bool = True
+    # If True, save the pre-processed capture frame with received 4-point quad overlay (API debug aid).
+    save_debug_capture_with_quad: bool = True
+    # Folder for debug snapshots produced by save_debug_capture_with_quad.
+    debug_capture_dir: str = "output/debug"
     # Lens distortion correction (fisheye model) applied before document detection.
     fisheye_correction_enabled: bool = True
     # Path to .npz calibration file with keys: "K" (3x3 camera matrix), "D" (4x1 coefficients).

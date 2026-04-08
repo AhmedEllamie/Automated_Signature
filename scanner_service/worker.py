@@ -496,6 +496,11 @@ class ScannerJobWorker:
             raise RuntimeError("No camera frame available")
         if (time.time() - frame_ts) > 2.5:
             raise RuntimeError("Camera frame is stale")
+        debug_input_path = self._save_debug_snapshot_if_enabled(
+            frame=frame,
+            quad_points=cfg.quad_points,
+            job_id=req.job_id,
+        )
         result = self._frame_processor(
             frame,
             self._cfg,
@@ -505,6 +510,8 @@ class ScannerJobWorker:
         )
         result.frame_width = width
         result.frame_height = height
+        if debug_input_path:
+            setattr(result, "debug_input_path", debug_input_path)
         return result
 
     def _mark_running(self, job_id: str) -> None:
@@ -547,6 +554,9 @@ class ScannerJobWorker:
             "frame_height": result.frame_height,
             "elapsed_ms": result.elapsed_ms,
         }
+        debug_input_path = getattr(result, "debug_input_path", "")
+        if isinstance(debug_input_path, str) and debug_input_path:
+            metadata["debug_input_path"] = debug_input_path
         if result.readability is not None:
             metadata["readability"] = {
                 "readable": result.readability.readable,
@@ -567,6 +577,45 @@ class ScannerJobWorker:
         with open(path, "wb") as f:
             f.write(png_bytes)
         return path
+
+    def _save_debug_snapshot_if_enabled(
+        self,
+        *,
+        frame: Any,
+        quad_points: list[list[float]],
+        job_id: str,
+    ) -> str | None:
+        if not self._cfg.save_debug_capture_with_quad:
+            return None
+        if frame is None:
+            return None
+        try:
+            import cv2
+            import numpy as np
+
+            os.makedirs(self._cfg.debug_capture_dir, exist_ok=True)
+            overlay = frame.copy()
+            pts = np.array(quad_points, dtype=np.int32).reshape((-1, 1, 2))
+            cv2.polylines(overlay, [pts], isClosed=True, color=(0, 255, 255), thickness=3, lineType=cv2.LINE_AA)
+            for idx, point in enumerate(quad_points, start=1):
+                x, y = int(point[0]), int(point[1])
+                cv2.circle(overlay, (x, y), 7, (0, 0, 255), -1, lineType=cv2.LINE_AA)
+                cv2.putText(
+                    overlay,
+                    str(idx),
+                    (x + 10, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 255, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+            name = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{job_id}_input_quad.png"
+            path = os.path.join(self._cfg.debug_capture_dir, name)
+            cv2.imwrite(path, overlay)
+            return path
+        except Exception:
+            return None
 
     @staticmethod
     def _quad_to_list(quad: Any) -> list[list[float]]:

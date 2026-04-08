@@ -199,6 +199,14 @@ Local save behavior for this API:
 - `True`: successful captures are saved to `ScannerConfig.save_dir` and still available via `/capture/{id}/result`.
 - `False`: no local file is written; image is available only through API response endpoints.
 
+Debug snapshot behavior (before rectification):
+
+- Set `ScannerConfig.save_debug_capture_with_quad = True` to save the live input frame used by the job with the received 4-point polygon drawn on it.
+- Saved in `ScannerConfig.debug_capture_dir` (default `output/debug`).
+- When available, the file path is returned in job metadata as `debug_input_path` from:
+  - `GET /capture/{capture_id}/status`
+  - `GET /jobs/{job_id}`
+
 - Response (`202`):
 
 ```json
