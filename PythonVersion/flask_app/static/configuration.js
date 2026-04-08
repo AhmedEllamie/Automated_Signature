@@ -364,7 +364,7 @@ async function applyScannerManualConfig(options = {}) {
 
   const responseData = await apiPostJson("/api/scanner/manual-config", payload);
   rememberAppliedQuadPoints(responseData, quadPointsPx);
-  return responseData;
+  return { responseData, payload };
 }
 
 function queueManualFocusSync() {
@@ -523,8 +523,8 @@ function addQuadPointFromClick(event) {
 
 async function sendScannerConfig() {
   try {
-    await applyScannerManualConfig({ requireQuadPoints: true });
-    showConfigMessage("Scanner config sent successfully.");
+    const { payload } = await applyScannerManualConfig({ requireQuadPoints: true });
+    showConfigMessage(`Scanner config sent successfully.\nPayload:\n${JSON.stringify(payload, null, 2)}`);
   } catch (error) {
     showConfigMessage(`Send scanner config failed: ${error.message}`, true);
   }
