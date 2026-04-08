@@ -231,6 +231,34 @@ function startCapturePolling(maxAttempts = 20, intervalMs = 2000) {
   }, intervalMs);
 }
 
+function isCaptureFullscreenActive() {
+  const imageEl = document.getElementById("capturePreview");
+  return document.fullscreenElement === imageEl;
+}
+
+function updateCaptureFullscreenButtonLabel() {
+  const button = document.getElementById("captureFullscreenBtn");
+  if (!button) return;
+  button.textContent = isCaptureFullscreenActive() ? "Exit Fullscreen" : "Fullscreen";
+}
+
+async function toggleCaptureFullscreen() {
+  const imageEl = document.getElementById("capturePreview");
+  if (!imageEl) return;
+
+  try {
+    if (isCaptureFullscreenActive()) {
+      await document.exitFullscreen();
+      return;
+    }
+    await imageEl.requestFullscreen();
+  } catch (error) {
+    appendLog(`Fullscreen error: ${error.message}`, true);
+  } finally {
+    updateCaptureFullscreenButtonLabel();
+  }
+}
+
 async function requestCapture() {
   try {
     const startData = await apiPostJson("/api/scanner/capture/start", {
@@ -275,10 +303,14 @@ async function requestCapture() {
 function registerEvents() {
   document.getElementById("captureBtn").addEventListener("click", requestCapture);
   document.getElementById("printBtn").addEventListener("click", printUploadedSvg);
+  document.getElementById("captureFullscreenBtn").addEventListener("click", () => {
+    void toggleCaptureFullscreen();
+  });
   document.getElementById("uploadBtn").addEventListener("click", () => {
     document.getElementById("svgFileInput").click();
   });
   document.getElementById("voidBtn").addEventListener("click", runVoid);
+  document.addEventListener("fullscreenchange", updateCaptureFullscreenButtonLabel);
 
   document.getElementById("svgFileInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
@@ -290,6 +322,7 @@ function registerEvents() {
 
 async function initPage() {
   registerEvents();
+  updateCaptureFullscreenButtonLabel();
   await refreshStatus();
   startAutoStatusRefresh();
   try {

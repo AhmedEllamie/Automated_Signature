@@ -270,6 +270,12 @@ label.radio-inline {
   color: #5f6b7a;
 }
 
+.capture-photo-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
 #capturePreview {
   display: block;
   width: 100%;
