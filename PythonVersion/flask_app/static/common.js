@@ -18,6 +18,15 @@ const DEFAULT_CONNECTION_SETTINGS = {
   baudRate: 250000,
 };
 
+const DEFAULT_CAPTURE_SETTINGS = {
+  autofocusEnabled: false,
+  manualFocusValue: 35,
+  quadPointsText: "100,120\n1700,130\n1710,980\n120,990",
+  streamFps: 10,
+  streamWidth: 1280,
+  streamFisheye: true,
+};
+
 function parseApiResponse(response) {
   return response.json().catch(() => {
     throw new Error(`Invalid API response (${response.status})`);
@@ -59,6 +68,7 @@ function readStorageState() {
       return {
         print: { ...DEFAULT_PRINT_SETTINGS },
         connection: { ...DEFAULT_CONNECTION_SETTINGS },
+        capture: { ...DEFAULT_CAPTURE_SETTINGS },
       };
     }
 
@@ -66,15 +76,18 @@ function readStorageState() {
     const print = typeof parsed?.print === "object" && parsed.print !== null ? parsed.print : {};
     const connection =
       typeof parsed?.connection === "object" && parsed.connection !== null ? parsed.connection : {};
+    const capture = typeof parsed?.capture === "object" && parsed.capture !== null ? parsed.capture : {};
 
     return {
       print: { ...DEFAULT_PRINT_SETTINGS, ...print },
       connection: { ...DEFAULT_CONNECTION_SETTINGS, ...connection },
+      capture: { ...DEFAULT_CAPTURE_SETTINGS, ...capture },
     };
   } catch (error) {
     return {
       print: { ...DEFAULT_PRINT_SETTINGS },
       connection: { ...DEFAULT_CONNECTION_SETTINGS },
+      capture: { ...DEFAULT_CAPTURE_SETTINGS },
     };
   }
 }
@@ -103,4 +116,15 @@ function saveConnectionSettings(connectionSettings) {
   state.connection = { ...DEFAULT_CONNECTION_SETTINGS, ...connectionSettings };
   writeStorageState(state);
   return state.connection;
+}
+
+function loadCaptureSettings() {
+  return readStorageState().capture;
+}
+
+function saveCaptureSettings(captureSettings) {
+  const state = readStorageState();
+  state.capture = { ...DEFAULT_CAPTURE_SETTINGS, ...captureSettings };
+  writeStorageState(state);
+  return state.capture;
 }

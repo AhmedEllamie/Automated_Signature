@@ -33,6 +33,34 @@ function buildPrintSettingsPayload() {
   };
 }
 
+function parseQuadPoints(quadPointsText) {
+  const lines = String(quadPointsText || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length !== 4) {
+    throw new Error("Capture config requires exactly 4 points.");
+  }
+
+  const points = lines.map((line) => {
+    const parts = line.split(",").map((part) => Number(part.trim()));
+    if (parts.length !== 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) {
+      throw new Error(`Invalid point format: "${line}". Use x,y.`);
+    }
+    return [parts[0], parts[1]];
+  });
+  return points;
+}
+
+function buildCapturePayload() {
+  const capture = loadCaptureSettings();
+  return {
+    autofocus_enabled: Boolean(capture.autofocusEnabled),
+    manual_focus_value: Number(capture.manualFocusValue || 35),
+    quad_points: parseQuadPoints(capture.quadPointsText),
+  };
+}
+
 function setBadgeState(elementId, text, className) {
   const node = document.getElementById(elementId);
   if (!node) return;
@@ -206,9 +234,12 @@ function startCapturePolling(maxAttempts = 20, intervalMs = 2000) {
 
 async function requestCapture() {
   try {
-    await apiPostJson("/api/capture/request", {});
-    appendLog("Capture reset command sent. Waiting for callback image...");
-    startCapturePolling();
+    const payload = buildCapturePayload();
+    const data = await apiPostJson("/api/scanner/capture-manual", payload);
+    const imageEl = document.getElementById("capturePreview");
+    imageEl.src = `${data.imageUrl}?t=${Date.now()}`;
+    imageEl.style.display = "block";
+    appendLog("Capture completed and rectified image loaded.");
   } catch (error) {
     appendLog(`Capture request error: ${error.message}`, true);
   }

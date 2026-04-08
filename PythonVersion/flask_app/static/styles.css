@@ -168,6 +168,14 @@ select {
   padding: 8px;
 }
 
+textarea {
+  border: 1px solid #b7c0cc;
+  border-radius: 6px;
+  padding: 8px;
+  font-family: Consolas, monospace;
+  resize: vertical;
+}
+
 #uploadedSvgLabel {
   margin: 0 0 12px;
   color: #5f6b7a;

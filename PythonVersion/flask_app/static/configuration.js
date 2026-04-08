@@ -29,6 +29,17 @@ function readPrintSettingsForm() {
   };
 }
 
+function readCaptureSettingsForm() {
+  return {
+    autofocusEnabled: document.getElementById("autofocusEnabled").checked,
+    manualFocusValue: Number(document.getElementById("manualFocusValue").value || 35),
+    quadPointsText: document.getElementById("quadPointsText").value.trim(),
+    streamFps: Number(document.getElementById("streamFps").value || 10),
+    streamWidth: Number(document.getElementById("streamWidth").value || 0),
+    streamFisheye: document.getElementById("streamFisheye").checked,
+  };
+}
+
 function hydrateConfiguration() {
   const connection = loadConnectionSettings();
   document.getElementById("comPort").value = connection.comPort || "";
@@ -44,6 +55,14 @@ function hydrateConfiguration() {
   document.getElementById("invertY").checked = Boolean(print.invertY);
   document.getElementById("penMode").value = print.penMode === "finish" ? "finish" : "start";
   document.getElementById("penMaxDistanceM").value = print.penMaxDistanceM || "";
+
+  const capture = loadCaptureSettings();
+  document.getElementById("autofocusEnabled").checked = Boolean(capture.autofocusEnabled);
+  document.getElementById("manualFocusValue").value = Number(capture.manualFocusValue || 35);
+  document.getElementById("quadPointsText").value = capture.quadPointsText || "";
+  document.getElementById("streamFps").value = Number(capture.streamFps || 10);
+  document.getElementById("streamWidth").value = Number(capture.streamWidth || 0);
+  document.getElementById("streamFisheye").checked = Boolean(capture.streamFisheye);
 }
 
 function persistConnectionSettings() {
@@ -52,6 +71,10 @@ function persistConnectionSettings() {
 
 function persistPrintSettings() {
   savePrintSettings(readPrintSettingsForm());
+}
+
+function persistCaptureSettings() {
+  saveCaptureSettings(readCaptureSettingsForm());
 }
 
 async function scanSerialPorts() {
@@ -150,6 +173,14 @@ function registerPersistenceListeners() {
     "penMode",
     "penMaxDistanceM",
   ];
+  const captureFields = [
+    "autofocusEnabled",
+    "manualFocusValue",
+    "quadPointsText",
+    "streamFps",
+    "streamWidth",
+    "streamFisheye",
+  ];
 
   connectionFields.forEach((id) => {
     const node = document.getElementById(id);
@@ -162,6 +193,28 @@ function registerPersistenceListeners() {
     node.addEventListener("input", persistPrintSettings);
     node.addEventListener("change", persistPrintSettings);
   });
+
+  captureFields.forEach((id) => {
+    const node = document.getElementById(id);
+    node.addEventListener("input", persistCaptureSettings);
+    node.addEventListener("change", persistCaptureSettings);
+  });
+}
+
+function buildStreamUrl() {
+  const capture = readCaptureSettingsForm();
+  const params = new URLSearchParams();
+  params.set("fps", String(Math.min(25, Math.max(1, Number(capture.streamFps || 10)))));
+  params.set("width", String(Math.max(0, Number(capture.streamWidth || 0))));
+  params.set("fisheye", capture.streamFisheye ? "1" : "0");
+  return `/api/scanner/stream.mjpg?${params.toString()}`;
+}
+
+function showStreamWindow() {
+  persistCaptureSettings();
+  const url = buildStreamUrl();
+  window.open(url, "_blank", "noopener,noreferrer");
+  showConfigMessage("Live stream opened. Use it to pick exact 4 points.");
 }
 
 function registerActions() {
@@ -171,6 +224,7 @@ function registerActions() {
   document.getElementById("setPenMaxBtn").addEventListener("click", setPenMaxDistance);
   document.getElementById("changePenBtn").addEventListener("click", runChangePen);
   document.getElementById("resetBtn").addEventListener("click", runReset);
+  document.getElementById("showStreamBtn").addEventListener("click", showStreamWindow);
 }
 
 function initConfigurationPage() {

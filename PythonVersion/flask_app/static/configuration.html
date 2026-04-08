@@ -89,6 +89,40 @@
           </div>
         </div>
       </section>
+
+      <section class="card">
+        <h2>Capture Config</h2>
+        <p class="muted small-print">Set focus and 4-point perspective for manual scanner capture.</p>
+        <div class="settings-row-pair settings-check-row">
+          <label class="checkbox">
+            <input id="autofocusEnabled" type="checkbox">
+            Autofocus enabled
+          </label>
+          <label>Manual focus value
+            <input id="manualFocusValue" type="number" min="0" max="255" step="1" value="35">
+          </label>
+        </div>
+        <label>4 points (one point per line: x,y)
+          <textarea id="quadPointsText" rows="6" placeholder="100,120&#10;1700,130&#10;1710,980&#10;120,990"></textarea>
+        </label>
+        <div class="settings-row-pair">
+          <label>Stream FPS
+            <input id="streamFps" type="number" min="1" max="25" step="1" value="10">
+          </label>
+          <label>Stream width (0 = original)
+            <input id="streamWidth" type="number" min="0" step="1" value="1280">
+          </label>
+        </div>
+        <div class="settings-row-pair settings-check-row">
+          <label class="checkbox">
+            <input id="streamFisheye" type="checkbox" checked>
+            Stream fisheye correction
+          </label>
+        </div>
+        <div class="secondary-row">
+          <button id="showStreamBtn" type="button">Show stream</button>
+        </div>
+      </section>
     </section>
 
     <section class="card">

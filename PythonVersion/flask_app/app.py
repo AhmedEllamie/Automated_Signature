@@ -4,9 +4,11 @@ import asyncio
 import base64
 import io
 import json
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import UUID
@@ -14,7 +16,12 @@ from uuid import UUID
 from flask import Flask, Response, request, send_file, send_from_directory
 
 from PythonVersion.dependency_injection import ServiceProvider, get_service_provider
-from PythonVersion.flask_app.config import FlaskCaptureSettings, load_capture_settings
+from PythonVersion.flask_app.config import (
+    FlaskCaptureSettings,
+    ScannerServiceSettings,
+    load_capture_settings,
+    load_scanner_service_settings,
+)
 from PythonVersion.flask_app.response import api_error, api_success
 from PythonVersion.flask_app.state import RuntimeState
 from PythonVersion.models.contracts import PrintRequest, get_paper_size_mm, parse_bool
@@ -179,9 +186,59 @@ def _extract_capture_image_payload() -> tuple[str, str, bytes]:
     raise ValueError("No capture image payload found.")
 
 
+def _build_scanner_headers(scanner_settings: ScannerServiceSettings, include_content_type: bool = False) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if include_content_type:
+        headers["Content-Type"] = "application/json"
+    if scanner_settings.token:
+        headers["Authorization"] = f"Bearer {scanner_settings.token}"
+    return headers
+
+
+def _scanner_request_json(
+    scanner_settings: ScannerServiceSettings,
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+
+    request_obj = Request(
+        url=f"{scanner_settings.base_url}{path}",
+        data=data,
+        method=method,
+        headers=_build_scanner_headers(scanner_settings, include_content_type=body is not None),
+    )
+    with urlopen(request_obj, timeout=scanner_settings.timeout_seconds) as response:
+        status_code = response.getcode()
+        raw_body = response.read().decode("utf-8", errors="ignore")
+        payload = json.loads(raw_body) if raw_body else {}
+        if not isinstance(payload, dict):
+            raise ValueError("Scanner response is not a JSON object.")
+        return status_code, payload
+
+
+def _scanner_request_bytes(scanner_settings: ScannerServiceSettings, path: str) -> tuple[int, str, bytes]:
+    request_obj = Request(
+        url=f"{scanner_settings.base_url}{path}",
+        method="GET",
+        headers=_build_scanner_headers(scanner_settings),
+    )
+    with urlopen(request_obj, timeout=scanner_settings.timeout_seconds) as response:
+        return (
+            response.getcode(),
+            response.headers.get_content_type() or "application/octet-stream",
+            response.read(),
+        )
+
+
 def create_app(provider: ServiceProvider | None = None) -> Flask:
     provider = provider or get_service_provider()
     capture_settings = load_capture_settings()
+    scanner_settings = load_scanner_service_settings()
     runtime_state = RuntimeState()
 
     app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -218,7 +275,44 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
                 "defaultBaudRate": provider.printer_service.default_baud_rate,
                 "captureResetConfigured": capture_settings.is_configured,
                 "captureResetMethod": capture_settings.reset_method,
+                "scannerServiceConfigured": scanner_settings.is_configured,
+                "scannerServiceBaseUrl": scanner_settings.base_url,
             },
+        )
+
+    @app.get("/api/scanner/stream.mjpg")
+    def scanner_stream_proxy() -> Response | tuple[Response, int]:
+        fps = request.args.get("fps", "10")
+        width = request.args.get("width", "0")
+        fisheye = request.args.get("fisheye", "1")
+        query = urlencode({"fps": fps, "width": width, "fisheye": fisheye})
+        path = f"/stream.mjpg?{query}"
+        request_obj = Request(
+            url=f"{scanner_settings.base_url}{path}",
+            method="GET",
+            headers=_build_scanner_headers(scanner_settings),
+        )
+        try:
+            upstream = urlopen(request_obj, timeout=scanner_settings.timeout_seconds)
+        except HTTPError as ex:
+            return api_error(
+                f"Scanner stream failed with HTTP {ex.code}.",
+                error_code="SCANNER_STREAM_HTTP_ERROR",
+                status_code=502,
+            )
+        except URLError as ex:
+            return api_error(
+                f"Failed to reach scanner stream: {ex}",
+                error_code="SCANNER_STREAM_UNREACHABLE",
+                status_code=502,
+            )
+        except Exception as ex:
+            return api_error(f"Scanner stream proxy failed: {ex}", error_code="SCANNER_STREAM_FAILED", status_code=500)
+
+        return Response(
+            upstream,
+            content_type=upstream.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
+            direct_passthrough=True,
         )
 
     @app.get("/api/serial-ports")
@@ -509,6 +603,86 @@ def create_app(provider: ServiceProvider | None = None) -> Flask:
             return api_error(f"Capture trigger failed: {ex}", error_code="CAPTURE_TRIGGER_FAILED", status_code=500)
 
         return api_success("Capture reset command sent.", data=response_payload)
+
+    @app.post("/api/scanner/capture-manual")
+    def scanner_capture_manual() -> tuple[Response, int]:
+        payload = _get_json_dict()
+        if not payload:
+            return api_error("Capture config payload is required.", error_code="SCANNER_CONFIG_REQUIRED", status_code=400)
+
+        try:
+            _, manual_config_response = _scanner_request_json(
+                scanner_settings,
+                "/session/manual-config",
+                method="POST",
+                body=payload,
+            )
+            if manual_config_response.get("ok") is False:
+                raise RuntimeError(manual_config_response.get("message") or "Scanner manual config failed.")
+
+            _, create_job_response = _scanner_request_json(
+                scanner_settings,
+                "/jobs",
+                method="POST",
+                body={"mode": "manual", "readability_required": True, "timeout_seconds": 15},
+            )
+            job = create_job_response.get("job") or {}
+            job_id = str(job.get("job_id") or "").strip()
+            if not job_id:
+                raise RuntimeError("Scanner job id was not returned.")
+
+            latest_job = job
+            for _ in range(scanner_settings.job_poll_max_attempts):
+                _, job_response = _scanner_request_json(scanner_settings, f"/jobs/{job_id}", method="GET")
+                latest_job = job_response.get("job") or {}
+                status = str(latest_job.get("status") or "").strip().lower()
+                if status in {"succeeded", "failed"}:
+                    break
+                time.sleep(scanner_settings.job_poll_interval_seconds)
+
+            final_status = str(latest_job.get("status") or "").strip().lower()
+            if final_status != "succeeded":
+                raise RuntimeError(
+                    f"Scanner capture failed: {latest_job.get('error') or 'unknown_error'} - "
+                    f"{latest_job.get('detail') or 'no detail'}."
+                )
+
+            _, content_type, image_payload = _scanner_request_bytes(scanner_settings, f"/jobs/{job_id}/image")
+            if not image_payload:
+                raise RuntimeError("Scanner returned an empty rectified image.")
+
+        except HTTPError as ex:
+            body = ex.read().decode("utf-8", errors="ignore")
+            return api_error(
+                f"Scanner request failed with HTTP {ex.code}.",
+                error_code="SCANNER_HTTP_ERROR",
+                status_code=502,
+                details={"statusCode": ex.code, "responseBody": body[:4000]},
+            )
+        except URLError as ex:
+            return api_error(
+                f"Failed to reach scanner service: {ex}",
+                error_code="SCANNER_UNREACHABLE",
+                status_code=502,
+            )
+        except Exception as ex:
+            return api_error(f"Manual scanner capture failed: {ex}", error_code="SCANNER_CAPTURE_FAILED", status_code=500)
+
+        model = runtime_state.set_captured_image(
+            file_name=f"rectified-{job_id}.png",
+            content_type=content_type,
+            payload=image_payload,
+        )
+        return api_success(
+            message="Manual scanner capture completed.",
+            data={
+                "jobId": job_id,
+                "fileName": model.file_name,
+                "contentType": model.content_type,
+                "capturedAt": _to_iso8601_utc(model.captured_at),
+                "imageUrl": "/api/capture/latest/image",
+            },
+        )
 
     @app.post("/api/capture")
     def capture_upload() -> tuple[Response, int]:
