@@ -276,8 +276,6 @@ label.radio-inline {
   height: 420px;
   object-fit: contain;
   object-position: center;
-  transform: rotate(-90deg) scale(0.75);
-  transform-origin: center center;
   border: 1px solid #d7dce3;
   border-radius: 6px;
   background: #fafafa;
