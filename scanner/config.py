@@ -1,18 +1,43 @@
 from dataclasses import dataclass
 import os
+import sys
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _default_camera_index() -> int:
+    # Ubuntu/Linux usually exposes the first webcam at /dev/video0.
+    if sys.platform.startswith("linux"):
+        return 0
+    return 1
+
+
+def _default_camera_backend() -> str:
+    # Linux should use V4L2/CAP_ANY; Windows often benefits from DSHOW/MSMF.
+    if sys.platform.startswith("linux"):
+        return ""
+    return "DSHOW"
 
 
 @dataclass
 class ScannerConfig:
     # Linux/Ubuntu: first USB webcam is usually 0. Use 1 if you have multiple cameras.
-    camera_index: int = 1
+    camera_index: int = _env_int("SCAN_CAMERA_INDEX", _default_camera_index())
     # Windows: try "MSMF" or "DSHOW" if resolution is wrong. Linux: leave "" (V4L2) or set "V4L2".
-    camera_backend: str = "DSHOW"
+    camera_backend: str = os.getenv("SCAN_CAMERA_BACKEND", _default_camera_backend())
     # Requested capture size (USB cams may fall back if unsupported — check console for actual size).
     frame_width: int = 3840
     frame_height: int = 2160
     # Use MJPEG on many UVC cameras so 4K is possible over USB; set "" to let the driver choose.
-    camera_fourcc: str = "MJPG"
+    camera_fourcc: str = os.getenv("SCAN_CAMERA_FOURCC", "MJPG")
     # Camera focus controls (hardware/backend dependent).
     camera_autofocus_enabled: bool = True
     # Set >=0 to request manual focus value when autofocus is disabled.

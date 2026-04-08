@@ -145,6 +145,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Ubuntu release/deployment guide (systemd + env file + verification):
+
+- `UBUNTU_RELEASE_GUIDE.md`
+- `deploy/ubuntu/scanner-service.service`
+- `deploy/ubuntu/a4-scanner.env.example`
+
+Linux-friendly camera defaults are now automatic:
+
+- `camera_index` defaults to `0` on Linux.
+- `camera_backend` defaults to empty string on Linux (V4L2/CAP_ANY path).
+- You can override with env vars: `SCAN_CAMERA_INDEX`, `SCAN_CAMERA_BACKEND`, `SCAN_CAMERA_FOURCC`.
+
 If you do not yet have a requirements file, typical packages are:
 
 ```bash
