@@ -99,10 +99,29 @@ function renderQuadPoints() {
   }
 }
 
+function getStreamDisplaySize(img) {
+  if (!img) {
+    return { width: 0, height: 0 };
+  }
+  const wrapper = img?.closest(".stream-wrapper");
+  if (wrapper) {
+    return {
+      width: Number(wrapper.clientWidth || 0),
+      height: Number(wrapper.clientHeight || 0),
+    };
+  }
+  const rect = img.getBoundingClientRect();
+  return {
+    width: Number(rect.width || 0),
+    height: Number(rect.height || 0),
+  };
+}
+
 function getStreamImageGeometry() {
   const img = document.getElementById("streamPreview");
-  const containerWidth = Number(img.clientWidth || 0);
-  const containerHeight = Number(img.clientHeight || 0);
+  const displaySize = getStreamDisplaySize(img);
+  const containerWidth = displaySize.width;
+  const containerHeight = displaySize.height;
   const naturalWidth = Number(img.naturalWidth || uiState.streamNaturalWidth || 0);
   const naturalHeight = Number(img.naturalHeight || uiState.streamNaturalHeight || 0);
   if (!containerWidth || !containerHeight || !naturalWidth || !naturalHeight) {
@@ -141,8 +160,9 @@ function getStreamImageGeometry() {
 
 function updateStreamPreviewLayout() {
   const img = document.getElementById("streamPreview");
-  const containerWidth = Number(img.clientWidth || 0);
-  const containerHeight = Number(img.clientHeight || 0);
+  const displaySize = getStreamDisplaySize(img);
+  const containerWidth = displaySize.width;
+  const containerHeight = displaySize.height;
   if (!containerWidth || !containerHeight) {
     return;
   }
