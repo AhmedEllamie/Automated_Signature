@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automated Signature</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="topbar">
+      <h1>Automated Signature</h1>
+      <a class="nav-link" href="/configuration">Configuration</a>
+    </header>
+
+    <section class="dashboard-row">
+      <section class="card">
+        <h2>Captured Photo</h2>
+        <div class="capture-photo-actions">
+          <button id="captureFullscreenBtn" type="button">Fullscreen</button>
+        </div>
+        <img id="capturePreview" alt="Latest captured photo" />
+      </section>
+
+      <div class="stack-column">
+        <section class="card">
+          <h2>Status</h2>
+          <div class="status-badges">
+            <span id="statusConnectionBadge" class="badge">Disconnected</span>
+            <span id="statusBusyBadge" class="badge">Idle</span>
+          </div>
+          <div class="status-panel">
+            <div class="metric-row">
+              <span>Port</span>
+              <strong id="statusPort">N/A</strong>
+            </div>
+            <div class="metric-row">
+              <span>Cumulative distance (m)</span>
+              <strong id="statusCumulativeDistance">0.000 m</strong>
+            </div>
+            <div class="metric-row">
+              <span>Executed distance (m)</span>
+              <strong id="statusExecutedDistance">0.000 m</strong>
+            </div>
+          </div>
+          <div class="progress-section">
+            <div class="progress-header">
+              <span>Execution Progress</span>
+              <strong id="statusExecutionPercent">0%</strong>
+            </div>
+            <div class="progress-track">
+              <div id="statusExecutionFill" class="progress-fill"></div>
+            </div>
+          </div>
+          <div class="progress-section">
+            <div class="progress-header">
+              <span>Pen Remaining</span>
+              <strong id="statusPenRemaining">0%</strong>
+            </div>
+            <div class="progress-track">
+              <div id="statusPenFill" class="progress-fill"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Main Actions</h2>
+          <p id="uploadedSvgLabel">Uploaded SVG: none</p>
+          <p id="bulkProgressLabel">Bulk progress: 0 / 0</p>
+          <div class="button-row">
+            <button id="captureBtn" class="primary">Capture</button>
+            <button id="printBtn" class="primary">Print</button>
+            <button id="bulkPrintBtn" class="primary">Bulk Print</button>
+            <button id="stopBulkBtn" class="primary" disabled>Stop Bulk</button>
+            <button id="uploadBtn" class="primary">Upload</button>
+            <button id="voidBtn" class="primary">Void</button>
+          </div>
+          <input id="svgFileInput" type="file" accept=".svg,image/svg+xml" hidden>
+        </section>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Operation Log</h2>
+      <div id="logBox" class="log-box"></div>
+    </section>
+  </main>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
