@@ -1,40 +1,45 @@
-# Python cache and compiled files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
 # Virtual environments
 .venv/
 venv/
 env/
 
-# Build / packaging artifacts
+# Editor / IDE
+.vs/
+.vscode/
+.idea/
+*.code-workspace
+
+# Distribution / packaging
 build/
 dist/
 *.egg-info/
+.eggs/
+
+# Test / coverage
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
 
-# IDE/editor files
-.idea/
-.vscode/
-*.swp
-*.swo
+# Runtime data
+plotter_signature/distance_stats.json
 
-# OS files
-.DS_Store
+# Generated API docs
+docs/generated/
+
+# Local environment files
+.env
+.env.*
+!deploy/**/*.env.example
+
+# OS noise
 Thumbs.db
-
-# Project runtime outputs
-output/
-
-# Local test assets (optional)
-*.log
-
-# test  photos
-*.jpeg
-*.pyc
-*-314.pyc
-*-312.pyc
-*.cpython-*.pyc
+.DS_Store

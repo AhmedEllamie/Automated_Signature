@@ -1,6 +1,6 @@
-opencv-python
-numpy
-pytesseract
-requests
-flask
+fastapi>=0.115.0
+flask>=3.0.0
+uvicorn>=0.30.0
+pyserial>=3.5
+python-multipart>=0.0.9
 

@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297">
-  <title>10cm centered test line</title>
-  <desc>A4 page with one centered 100mm horizontal line for distance testing.</desc>
-  <line x1="55" y1="148.5" x2="155" y2="148.5" stroke="#000000" stroke-width="0.6" />
-</svg>
