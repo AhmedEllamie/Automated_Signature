@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import argparse
 import atexit
 import os
 import time
+from datetime import datetime
 from typing import Any
 
 import cv2
@@ -48,6 +50,16 @@ def create_app(
         if _extract_auth_token() != expected:
             return jsonify({"ok": False, "error": "unauthorized"}), 401
         return None
+
+    @app.after_request
+    def _access_log(response: Response) -> Response:
+        remote_addr = request.remote_addr or "-"
+        timestamp = datetime.now().strftime("%d/%b/%Y %H:%M:%S")
+        # request.full_path adds a trailing '?' when there is no query string.
+        path = request.full_path[:-1] if request.full_path.endswith("?") else request.full_path
+        protocol = request.environ.get("SERVER_PROTOCOL", "HTTP/1.1")
+        print(f'{remote_addr} - - [{timestamp}] "{request.method} {path} {protocol}" {response.status_code} -')
+        return response
 
     @app.get("/health")
     def health() -> Response:
@@ -249,9 +261,19 @@ def create_app(
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Scanner HTTP service launcher.", allow_abbrev=False)
+    parser.add_argument("--host", default=None, help="Bind host. Overrides SCANNER_SERVICE_HOST env var.")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port. Overrides SCANNER_SERVICE_PORT env var.",
+    )
+    args = parser.parse_args()
+
     cfg = ScannerConfig()
-    host = os.getenv("SCANNER_SERVICE_HOST", "127.0.0.1")
-    port = int(os.getenv("SCANNER_SERVICE_PORT", "8008"))
+    host = args.host if args.host is not None else os.getenv("SCANNER_SERVICE_HOST", "127.0.0.1")
+    port = args.port if args.port is not None else int(os.getenv("SCANNER_SERVICE_PORT", "8008"))
     app = create_app(cfg)
     app.run(host=host, port=port, threaded=True)
     return 0
