@@ -1,0 +1,6 @@
+[submodule "plotter-signature"]
+	path = plotter-signature
+	url = https://github.com/AhmedEllamie/Plotter.git
+[submodule "a4-flating"]
+	path = a4-flating
+	url = https://github.com/AhmedEllamie/Scanner.git
