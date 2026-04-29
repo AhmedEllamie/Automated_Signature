@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import atexit
 import os
-import time
+import signal
+import socket
+import threading
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, cast
 
 import cv2
 from flask import Flask, Response, jsonify, request
+from werkzeug.serving import BaseWSGIServer, make_server
 
 from scanner.config import ScannerConfig
 
@@ -28,17 +31,37 @@ def create_app(
     *,
     worker: ScannerJobWorker | None = None,
     service_token: str | None = None,
+    shutdown_event: threading.Event | None = None,
 ) -> Flask:
     cfg = cfg or ScannerConfig()
     worker = worker or ScannerJobWorker(cfg)
     token = service_token if service_token is not None else os.getenv("SCANNER_SERVICE_TOKEN", "")
+    shutdown_evt = shutdown_event if shutdown_event is not None else threading.Event()
 
     app = Flask(__name__)
     app.config["SCANNER_WORKER"] = worker
     app.config["SCANNER_SERVICE_TOKEN"] = token
+    app.config["SCANNER_SHUTDOWN_EVENT"] = shutdown_evt
+
+    _stop_lock = threading.Lock()
+    _worker_stopped = False
+
+    def stop_worker_once() -> None:
+        nonlocal _worker_stopped
+        with _stop_lock:
+            if _worker_stopped:
+                return
+            _worker_stopped = True
+        shutdown_evt.set()
+        try:
+            worker.stop()
+        except Exception:
+            pass
+
+    app.config["SCANNER_STOP_WORKER"] = stop_worker_once
 
     worker.start()
-    atexit.register(worker.stop)
+    atexit.register(stop_worker_once)
 
     @app.before_request
     def _require_auth() -> Response | None:
@@ -219,6 +242,7 @@ def create_app(
         fps_raw = request.args.get("fps", "10")
         width_raw = request.args.get("width", "0")
         fisheye_raw = request.args.get("fisheye", "1")
+        shutdown = cast(threading.Event, app.config["SCANNER_SHUTDOWN_EVENT"])
         try:
             fps = max(1.0, min(25.0, float(fps_raw)))
         except Exception:
@@ -229,27 +253,36 @@ def create_app(
             target_width = 0
         _fisheye_enabled = str(fisheye_raw).strip().lower() not in {"0", "false", "no", "off"}
         frame_delay = 1.0 / fps
+        idle_sleep = min(0.08, max(0.02, frame_delay / 4))
 
         def _generate() -> Any:
-            while True:
-                frame, _, _, _ = worker.get_latest_frame_snapshot()
-                if frame is None:
-                    time.sleep(0.08)
-                    continue
-                if target_width > 0 and frame.shape[1] > target_width:
-                    h = int(frame.shape[0] * (target_width / float(frame.shape[1])))
-                    frame = cv2.resize(frame, (target_width, max(1, h)), interpolation=cv2.INTER_AREA)
-                ok_jpg, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-                if not ok_jpg or buf is None:
-                    time.sleep(0.01)
-                    continue
-                payload = buf.tobytes()
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n"
-                    b"Cache-Control: no-store\r\n\r\n" + payload + b"\r\n"
-                )
-                time.sleep(frame_delay)
+            try:
+                while not shutdown.is_set():
+                    frame, _, _, _ = worker.get_latest_frame_snapshot()
+                    if frame is None:
+                        if shutdown.wait(timeout=idle_sleep):
+                            break
+                        continue
+                    if target_width > 0 and frame.shape[1] > target_width:
+                        h = int(frame.shape[0] * (target_width / float(frame.shape[1])))
+                        frame = cv2.resize(frame, (target_width, max(1, h)), interpolation=cv2.INTER_AREA)
+                    ok_jpg, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                    if not ok_jpg or buf is None:
+                        if shutdown.wait(timeout=0.02):
+                            break
+                        continue
+                    payload = buf.tobytes()
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Cache-Control: no-store\r\n\r\n" + payload + b"\r\n"
+                    )
+                    if shutdown.wait(timeout=frame_delay):
+                        break
+            except GeneratorExit:
+                return
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                return
 
         return Response(
             _generate(),
@@ -258,6 +291,35 @@ def create_app(
         )
 
     return app
+
+
+def _install_shutdown_signals(shutdown_event: threading.Event) -> None:
+    """Register SIGINT/SIGTERM to stop the server loop (best-effort on all platforms)."""
+
+    def _handler(_signum: int, _frame: object | None) -> None:
+        shutdown_event.set()
+
+    for sig in (getattr(signal, "SIGINT", None), getattr(signal, "SIGTERM", None)):
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, _handler)
+        except (ValueError, OSError):
+            pass
+
+
+def _run_werkzeug_server(app: Flask, host: str, port: int, shutdown_event: threading.Event) -> None:
+    """Serve Flask with a short socket timeout so shutdown_event is polled regularly."""
+    server: BaseWSGIServer = make_server(host, int(port), app, threaded=True)
+    server.socket.settimeout(0.5)
+    try:
+        while not shutdown_event.is_set():
+            try:
+                server.handle_request()
+            except socket.timeout:
+                continue
+    finally:
+        server.server_close()
 
 
 def main() -> int:
@@ -274,8 +336,19 @@ def main() -> int:
     cfg = ScannerConfig()
     host = args.host if args.host is not None else os.getenv("SCANNER_SERVICE_HOST", "127.0.0.1")
     port = args.port if args.port is not None else int(os.getenv("SCANNER_SERVICE_PORT", "8008"))
-    app = create_app(cfg)
-    app.run(host=host, port=port, threaded=True)
+
+    shutdown_event = threading.Event()
+    app = create_app(cfg, shutdown_event=shutdown_event)
+    stop_worker = cast(Callable[[], None], app.config["SCANNER_STOP_WORKER"])
+    _install_shutdown_signals(shutdown_event)
+
+    try:
+        _run_werkzeug_server(app, host, port, shutdown_event)
+    except KeyboardInterrupt:
+        shutdown_event.set()
+    finally:
+        stop_worker()
+
     return 0
 
 

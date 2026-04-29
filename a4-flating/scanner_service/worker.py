@@ -48,6 +48,8 @@ class CameraManager:
 
         self._command_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self._stop_event = threading.Event()
+        self._stop_lock = threading.Lock()
+        self._fully_stopped = False
         self._thread = threading.Thread(target=self._run, name="scanner-camera-manager", daemon=True)
 
     def start(self) -> None:
@@ -55,8 +57,12 @@ class CameraManager:
             self._thread.start()
 
     def stop(self, timeout_seconds: float = 3.0) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=max(0.1, timeout_seconds))
+        with self._stop_lock:
+            if self._fully_stopped:
+                return
+            self._stop_event.set()
+            self._thread.join(timeout=max(0.1, timeout_seconds))
+            self._fully_stopped = True
 
     def enqueue_focus_mode(self, *, autofocus_enabled: bool, manual_focus_value: float | None) -> None:
         self._command_queue.put(
@@ -99,7 +105,8 @@ class CameraManager:
                     cap = self._open_video_capture(self._cfg)
                     if cap is None or not cap.isOpened():
                         self._set_camera_error("camera_unavailable")
-                        time.sleep(backoff)
+                        if self._stop_event.wait(timeout=backoff):
+                            break
                         backoff = min(2.0, backoff * 1.5)
                         continue
                     self._apply_camera_settings(cap, self._cfg)
@@ -129,7 +136,8 @@ class CameraManager:
                 if cap is not None and cap.isOpened():
                     cap.release()
                 cap = None
-                time.sleep(0.3)
+                if self._stop_event.wait(timeout=0.3):
+                    break
 
         if cap is not None and cap.isOpened():
             cap.release()
@@ -236,6 +244,8 @@ class ScannerJobWorker:
 
         self._queue: queue.Queue[JobRequest] = queue.Queue()
         self._stop_event = threading.Event()
+        self._stop_lock = threading.Lock()
+        self._fully_stopped = False
         self._thread = threading.Thread(target=self._run, name="scanner-capture-worker", daemon=True)
 
     def start(self) -> None:
@@ -244,9 +254,13 @@ class ScannerJobWorker:
             self._thread.start()
 
     def stop(self, timeout_seconds: float = 3.0) -> None:
-        self._stop_event.set()
-        self._thread.join(timeout=max(0.1, timeout_seconds))
-        self._camera.stop(timeout_seconds=timeout_seconds)
+        with self._stop_lock:
+            if self._fully_stopped:
+                return
+            self._stop_event.set()
+            self._thread.join(timeout=max(0.1, timeout_seconds))
+            self._camera.stop(timeout_seconds=timeout_seconds)
+            self._fully_stopped = True
 
     def get_camera_status(self) -> dict[str, Any]:
         return self._camera.get_status()
@@ -452,7 +466,7 @@ class ScannerJobWorker:
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
-                req = self._queue.get(timeout=0.2)
+                req = self._queue.get(timeout=0.1)
             except queue.Empty:
                 continue
 
